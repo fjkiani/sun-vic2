@@ -1,0 +1,89 @@
+# Sunvic Documents Engine — Netlify config
+# API endpoints are served by Netlify Functions and rewritten from /api/* → /.netlify/functions/*.
+
+[build]
+  command   = "npm run build"
+  publish   = "dist"
+  functions = "netlify/functions"
+
+[dev]
+  command = "npm run dev:vite"
+  port    = 8888
+
+# Functions bundling — esbuild handles the JSX react-pdf templates that
+# document-pdf.js and document-email.js import.
+[functions]
+  node_bundler = "esbuild"
+  # @react-pdf/renderer + resend include native/large deps; letting esbuild
+  # bundle them keeps cold start low.
+  external_node_modules = ["@supabase/supabase-js"]
+  # File paths that the bundler must copy verbatim next to the function.
+  included_files = ["packages/**/*.js", "packages/**/*.jsx"]
+
+# ────────────────────────────────────────────────────────────────
+# API rewrites (client hits /api/*; Netlify routes to functions/*)
+# ────────────────────────────────────────────────────────────────
+[[redirects]]
+  from   = "/api/documents"
+  to     = "/.netlify/functions/documents"
+  status = 200
+  force  = true
+
+[[redirects]]
+  from   = "/api/documents/:id"
+  to     = "/.netlify/functions/document?id=:id"
+  status = 200
+  force  = true
+
+[[redirects]]
+  from   = "/api/documents/:id/pdf"
+  to     = "/.netlify/functions/document-pdf?id=:id"
+  status = 200
+  force  = true
+
+[[redirects]]
+  from   = "/api/documents/:id/email"
+  to     = "/.netlify/functions/document-email?id=:id"
+  status = 200
+  force  = true
+
+[[redirects]]
+  from   = "/api/documents/:id/public"
+  to     = "/.netlify/functions/document-public?id=:id"
+  status = 200
+  force  = true
+
+[[redirects]]
+  from   = "/api/agent/oneshot"
+  to     = "/.netlify/functions/agent-oneshot"
+  status = 200
+  force  = true
+
+[[redirects]]
+  from   = "/api/agent/chat"
+  to     = "/.netlify/functions/agent-chat"
+  status = 200
+  force  = true
+
+[[redirects]]
+  from   = "/api/models"
+  to     = "/.netlify/functions/models"
+  status = 200
+  force  = true
+
+# ────────────────────────────────────────────────────────────────
+# Legacy /invoice → new documents route (backward compat)
+# ────────────────────────────────────────────────────────────────
+[[redirects]]
+  from   = "/invoice"
+  to     = "/documents/new?template=invoice"
+  status = 301
+  force  = true
+
+# ────────────────────────────────────────────────────────────────
+# SPA fallback
+# ────────────────────────────────────────────────────────────────
+[[redirects]]
+  from   = "/*"
+  to     = "/index.html"
+  status = 200
