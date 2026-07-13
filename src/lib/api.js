@@ -47,4 +47,9 @@ export const api = {
 
   // Meta
   listModels:     () => request('GET', '/api/models'),
+
+  // User API keys
+  listUserKeys:   () => request('GET', '/api/user-keys'),
+  saveUserKey:    (provider, key) => request('POST', '/api/user-keys', { provider, key }),
+  deleteUserKey:  (provider) => request('DELETE', '/api/user-keys', { provider }),
 };

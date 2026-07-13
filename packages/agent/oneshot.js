@@ -5,6 +5,7 @@
 // - Merges the LLM output over defaults + re-applies locked fields on top (defense in depth)
 
 import { getProvider } from './providers/index.js';
+import { resolveProviderKey } from '../db/user-keys.js';
 import { classifyTemplate } from './classifier.js';
 import {
   defaultContractPayload,
@@ -157,17 +158,19 @@ function structuralHint(chosenTemplate, defaults) {
 /**
  * Generate a document payload from a natural-language prompt.
  */
-export async function oneshot({ prompt, template, providerId = 'openrouter', model, homeownerName }) {
-  return _runOneshot({ prompt, template, providerId, model, homeownerName });
+export async function oneshot({ prompt, template, providerId = 'openrouter', model, homeownerName, userId }) {
+  return _runOneshot({ prompt, template, providerId, model, homeownerName, userId });
 }
 
 export const generateOneshot = oneshot;
 
-async function _runOneshot({ prompt, template, providerId, model, homeownerName }) {
+async function _runOneshot({ prompt, template, providerId, model, homeownerName, userId }) {
   if (!prompt || typeof prompt !== 'string') throw new Error('prompt required');
 
-  const chosenTemplate = template || (await classifyTemplate(prompt, { providerId }));
-  const provider = getProvider(providerId, { model });
+  const chosenTemplate = template || (await classifyTemplate(prompt, { providerId, userId }));
+  const apiKey = await resolveProviderKey(userId, providerId);
+  if (!apiKey) throw new Error(`no_api_key_for_provider:${providerId}`);
+  const provider = getProvider(providerId, { model, apiKey });
   const defaults = defaultsFor(chosenTemplate, homeownerName);
   const schema = schemaFor(chosenTemplate);
   const system = systemFor(chosenTemplate);

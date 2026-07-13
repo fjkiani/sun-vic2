@@ -5,6 +5,10 @@ import { api } from '../lib/api.js';
 import { PDFPreview } from '../components/PDFPreview.jsx';
 import { AgentChatPanel } from '../components/AgentChatPanel.jsx';
 import { LockableField } from '../components/LockableField.jsx';
+import { ContractFormEditor } from '../components/editors/ContractFormEditor.jsx';
+import { InvoiceEditor as InvoiceFormEditor } from '../components/editors/InvoiceFormEditor.jsx';
+import { LegalEditor } from '../components/editors/LegalEditor.jsx';
+import { HtmlContractMirror } from '../components/HtmlContractMirror.jsx';
 
 function fmtUSD(cents) {
   return ((Number(cents) || 0) / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
@@ -93,8 +97,8 @@ export function DocumentEditorPage() {
 
   return (
     <div className="grid grid-cols-12 gap-4 h-[calc(100vh-8rem)]">
-      {/* Left column: editor */}
-      <div className="col-span-12 lg:col-span-4 bg-white border border-neutral-200 rounded-xl overflow-hidden flex flex-col">
+      {/* Left column: form editor */}
+      <div className="col-span-12 lg:col-span-3 bg-white border border-neutral-200 rounded-xl overflow-hidden flex flex-col">
         <div className="px-4 py-3 border-b border-neutral-200 flex items-center justify-between">
           <div>
             <div className="font-mono text-sunvic-600 font-bold">{doc.doc_number}</div>
@@ -115,8 +119,8 @@ export function DocumentEditorPage() {
         </div>
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {tab === 'editor' && (doc.template === 'contract'
-            ? <ContractEditor doc={doc} onSave={saveField} onToggleLock={toggleLock} />
-            : <InvoiceEditor doc={doc} onSave={saveField} onToggleLock={toggleLock} />)}
+            ? <ContractFormEditor doc={doc} onSave={saveField} onToggleLock={toggleLock} />
+            : <InvoiceFormEditor doc={doc} onSave={saveField} onToggleLock={toggleLock} />)}
           {tab === 'legal' && <LegalEditor doc={doc} onSave={saveField} onToggleLock={toggleLock} />}
           {tab === 'actions' && (
             <div className="space-y-3">
@@ -157,152 +161,24 @@ export function DocumentEditorPage() {
         </div>
       </div>
 
-      {/* Middle: PDF preview */}
-      <div className="col-span-12 lg:col-span-5 h-full">
+      {/* Middle: HTML mirror (click anywhere to edit) */}
+      <div className="col-span-12 lg:col-span-5 h-full bg-neutral-100 border border-neutral-200 rounded-xl overflow-hidden">
+        <HtmlContractMirror
+          template={doc.template}
+          payload={doc.payload}
+          onSave={saveField}
+          locks={doc.locks || {}}
+          onToggleLock={toggleLock}
+        />
+      </div>
+
+      {/* Right: PDF preview */}
+      <div className="col-span-12 lg:col-span-4 h-full">
         <PDFPreview template={doc.template} payload={doc.payload} docNumber={doc.doc_number} />
       </div>
 
-      {/* Right: Agent panel */}
-      <div className="col-span-12 lg:col-span-3 h-full bg-white border border-neutral-200 rounded-xl overflow-hidden">
-        <AgentChatPanel document={doc} onDocumentUpdate={(d) => setDoc({ ...doc, ...d })} />
-      </div>
-    </div>
-  );
-}
-
-// ---------- Contract editor ----------
-function ContractEditor({ doc, onSave, onToggleLock }) {
-  const p = doc.payload;
-  const locks = doc.locks || {};
-  return (
-    <div className="space-y-3">
-      <SectionCard title="Homeowner">
-        <LockableField label="Name" path="homeowner.name" value={p.homeowner?.name} locked={locks['homeowner.name']}
-          onToggleLock={() => onToggleLock('homeowner.name')}
-          onChange={(v) => onSave({ 'homeowner.name': v })} />
-        <LockableField label="Property Address" path="homeowner.address" value={p.homeowner?.address} locked={locks['homeowner.address']}
-          onToggleLock={() => onToggleLock('homeowner.address')}
-          onChange={(v) => onSave({ 'homeowner.address': v })} />
-        <div className="grid grid-cols-2 gap-2">
-          <LockableField label="Phone" path="homeowner.phone" value={p.homeowner?.phone} locked={locks['homeowner.phone']}
-            onToggleLock={() => onToggleLock('homeowner.phone')}
-            onChange={(v) => onSave({ 'homeowner.phone': v })} />
-          <LockableField label="Email" path="homeowner.email" type="email" value={p.homeowner?.email} locked={locks['homeowner.email']}
-            onToggleLock={() => onToggleLock('homeowner.email')}
-            onChange={(v) => onSave({ 'homeowner.email': v })} />
-        </div>
-      </SectionCard>
-
-      <SectionCard title="Agreement Summary">
-        <LockableField label="Plain-English recap" path="agreement_summary" as="textarea" rows={3} value={p.agreement_summary}
-          locked={locks['agreement_summary']} onToggleLock={() => onToggleLock('agreement_summary')}
-          onChange={(v) => onSave({ 'agreement_summary': v })} />
-      </SectionCard>
-
-      <SectionCard title="Scope — Phases">
-        <PhaseList payload={p} template="contract" onSave={onSave} />
-      </SectionCard>
-
-      <SectionCard title="Payment Schedule">
-        <PaymentScheduleEditor payload={p} onSave={onSave} locks={locks} onToggleLock={onToggleLock} />
-      </SectionCard>
-
-      <SectionCard title="Timeline">
-        <div className="grid grid-cols-2 gap-2">
-          <LockableField label="Start" path="timeline.start_date" type="date" value={p.timeline?.start_date} locked={locks['timeline.start_date']}
-            onToggleLock={() => onToggleLock('timeline.start_date')}
-            onChange={(v) => onSave({ 'timeline.start_date': v })} />
-          <LockableField label="Substantial Completion" path="timeline.substantial_completion_date" type="date" value={p.timeline?.substantial_completion_date}
-            locked={locks['timeline.substantial_completion_date']}
-            onToggleLock={() => onToggleLock('timeline.substantial_completion_date')}
-            onChange={(v) => onSave({ 'timeline.substantial_completion_date': v })} />
-        </div>
-      </SectionCard>
-    </div>
-  );
-}
-
-// ---------- Invoice editor ----------
-function InvoiceEditor({ doc, onSave, onToggleLock }) {
-  const p = doc.payload;
-  const locks = doc.locks || {};
-  return (
-    <div className="space-y-3">
-      <SectionCard title="Bill To">
-        <LockableField label="Client Name" path="bill_to.client_name" value={p.bill_to?.client_name} locked={locks['bill_to.client_name']}
-          onToggleLock={() => onToggleLock('bill_to.client_name')}
-          onChange={(v) => onSave({ 'bill_to.client_name': v })} />
-        <LockableField label="Address" path="bill_to.client_address" value={p.bill_to?.client_address} locked={locks['bill_to.client_address']}
-          onToggleLock={() => onToggleLock('bill_to.client_address')}
-          onChange={(v) => onSave({ 'bill_to.client_address': v })} />
-        <LockableField label="Recipient Email" path="bill_to.recipient_email" type="email" value={p.bill_to?.recipient_email}
-          locked={locks['bill_to.recipient_email']} onToggleLock={() => onToggleLock('bill_to.recipient_email')}
-          onChange={(v) => onSave({ 'bill_to.recipient_email': v })} />
-      </SectionCard>
-
-      <SectionCard title="Dates & Reference">
-        <div className="grid grid-cols-2 gap-2">
-          <LockableField label="Invoice Date" path="invoice_date" type="date" value={p.invoice_date}
-            locked={locks['invoice_date']} onToggleLock={() => onToggleLock('invoice_date')}
-            onChange={(v) => onSave({ 'invoice_date': v })} />
-          <LockableField label="Due Date" path="due_date" type="date" value={p.due_date}
-            locked={locks['due_date']} onToggleLock={() => onToggleLock('due_date')}
-            onChange={(v) => onSave({ 'due_date': v })} />
-        </div>
-        <LockableField label="Project Ref" path="project_ref" value={p.project_ref}
-          locked={locks['project_ref']} onToggleLock={() => onToggleLock('project_ref')}
-          onChange={(v) => onSave({ 'project_ref': v })} />
-        <LockableField label="Tax Rate (%)" path="tax_rate_percent" type="number" step="0.01" value={p.tax_rate_percent}
-          locked={locks['tax_rate_percent']} onToggleLock={() => onToggleLock('tax_rate_percent')}
-          onChange={(v) => onSave({ 'tax_rate_percent': v })} />
-      </SectionCard>
-
-      <SectionCard title="Phases / Line Items">
-        <PhaseList payload={p} template="invoice" onSave={onSave} />
-      </SectionCard>
-
-      <SectionCard title="Options & Notes">
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={!!p.include_cost_analysis}
-            onChange={(e) => onSave({ 'include_cost_analysis': e.target.checked })} />
-          Include second-page cost analysis
-        </label>
-        <LockableField label="Notes" path="notes" as="textarea" rows={3} value={p.notes}
-          locked={locks['notes']} onToggleLock={() => onToggleLock('notes')}
-          onChange={(v) => onSave({ 'notes': v })} />
-      </SectionCard>
-    </div>
-  );
-}
-
-// ---------- Legal editor ----------
-function LegalEditor({ doc, onSave, onToggleLock }) {
-  const p = doc.payload;
-  const locks = doc.locks || {};
-  const isContract = doc.template === 'contract';
-  return (
-    <div className="space-y-3">
-      <div className="text-xs bg-amber-50 border border-amber-200 text-amber-800 rounded-md px-2 py-2">
-        Legal blocks are <strong>locked by default</strong>. Unlock only if a specific job requires custom terms — the defaults reflect canonical Sunvic language and NJ Home Improvement Contract Act requirements.
-      </div>
-
-      {isContract && ['warranties','permits','insurance','dispute_resolution','right_to_cancel'].map((key) => (
-        <SectionCard key={key} title={key.replace(/_/g,' ').replace(/\b\w/g, (c) => c.toUpperCase())}>
-          <LockableField label="Text" path={`${key}.text`} as="textarea" rows={10}
-            value={p[key]?.text} locked={locks[`${key}.text`]}
-            onToggleLock={() => onToggleLock(`${key}.text`)}
-            onChange={(v) => onSave({ [`${key}.text`]: v })} />
-        </SectionCard>
-      ))}
-
-      <SectionCard title="Contractor">
-        {['legal_name','address','phone','email','license_number','website'].map((k) => (
-          <LockableField key={k} label={k.replace(/_/g,' ')} path={`contractor.${k}`}
-            value={p.contractor?.[k]} locked={locks[`contractor.${k}`]}
-            onToggleLock={() => onToggleLock(`contractor.${k}`)}
-            onChange={(v) => onSave({ [`contractor.${k}`]: v })} />
-        ))}
-      </SectionCard>
+      {/* Agent panel: floating, toggleable */}
+      <AgentChatPanel document={doc} onDocumentUpdate={(d) => setDoc({ ...doc, ...d })} floating />
     </div>
   );
 }

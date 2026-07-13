@@ -3,11 +3,12 @@
 // Keyword pre-filter runs first to short-circuit obvious cases and save an LLM call.
 
 import { getProvider } from './providers/index.js';
+import { resolveProviderKey } from '../db/user-keys.js';
 
 const CONTRACT_HINTS = /\b(contract|agreement|scope of work|payment schedule|deposit|milestone|warranty|permit|kickoff|start date|substantial completion|homeowner)\b/i;
 const INVOICE_HINTS  = /\b(invoice|bill|due date|remaining balance|amount due|tax|paid|net-?30|net-?15|receipt)\b/i;
 
-export async function classifyTemplate(prompt, { providerId } = {}) {
+export async function classifyTemplate(prompt, { providerId, userId } = {}) {
   if (!prompt || typeof prompt !== 'string') return 'invoice';
 
   const contractHit = CONTRACT_HINTS.test(prompt);
@@ -16,7 +17,9 @@ export async function classifyTemplate(prompt, { providerId } = {}) {
   if (invoiceHit && !contractHit) return 'invoice';
 
   // Ambiguous → LLM classifier.
-  const provider = getProvider(providerId || 'cohere');
+  const pid = providerId || 'cohere';
+  const apiKey = await resolveProviderKey(userId, pid);
+  const provider = getProvider(pid, apiKey ? { apiKey } : {});
   const system = 'You are a template classifier for a NJ home-improvement contractor. Return one word only: "contract" or "invoice".';
   const user = [
     'Classify the following user prompt into "contract" or "invoice":',

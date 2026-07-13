@@ -8,6 +8,7 @@
 // The caller (agent-chat.js) is responsible for persisting the final payload + revision + agent messages.
 
 import { getProvider } from './providers/index.js';
+import { resolveProviderKey } from '../db/user-keys.js';
 import { executeToolCall, toolDefs } from './tools.js';
 import { isLocked } from '../../netlify/functions/_shared/locks.js';
 
@@ -47,8 +48,10 @@ export async function runChatTurn({
   docId,
   history,
   dispatch,
-}) {
-  const provider = getProvider(providerId, { model });
+, userId}) {
+  const apiKey = await resolveProviderKey(userId, providerId);
+  if (!apiKey) throw new Error(`no_api_key_for_provider:${providerId}`);
+  const provider = getProvider(providerId, { model, apiKey });
   if (!provider.supportsTools()) {
     throw new Error(`Provider "${providerId}" does not support tools. Use the one-shot generator instead.`);
   }

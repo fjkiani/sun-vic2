@@ -21,7 +21,7 @@ export const handler = async (event) => {
   if (!prompt) return json(400, { error: 'prompt_required' });
 
   try {
-    const result = await oneshot({ prompt, template, providerId: provider, model });
+    const result = await oneshot({ userId: user.id, prompt, template, providerId: provider, model });
     return json(200, result);
   } catch (e) {
     return json(500, { error: 'oneshot_failed', detail: String(e?.message || e) });

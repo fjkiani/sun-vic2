@@ -22,6 +22,14 @@ export function AppShell() {
           </NavLink>
           <div className="flex items-center gap-4">
             <ModelPickerDropdown />
+            <NavLink
+              to="/settings"
+              className={({ isActive }) =>
+                `text-sm hover:text-neutral-900 ${isActive ? 'text-sunvic-600 font-semibold' : 'text-neutral-600'}`
+              }
+            >
+              Settings
+            </NavLink>
             <button onClick={signOut} className="text-sm text-neutral-600 hover:text-neutral-900">Sign out</button>
           </div>
         </div>

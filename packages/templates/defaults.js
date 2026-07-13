@@ -58,18 +58,8 @@ export function defaultContractPayload({ homeownerName = '', jobNo = '', forLabe
     },
 
     scope_of_work: {
-      intro:
-        'Construction of a new addition according to the approved drawings issued for the permit, including demo, foundation, framing, roofing, siding, interior finishes, electrical, and HVAC.',
-      groups: DEFAULT_SCOPE_GROUPS.map((g) => ({
-        ...g,
-        tasks: g.tasks.map((t) => ({
-          task: t.task,
-          description: [...(t.description || [])],
-          qty: t.qty || 'Lump Sump',
-          unit_price_cents: 0,
-          amount_cents: 0,
-        })),
-      })),
+      intro: '',
+      groups: [],
       total_cents: 0,
     },
 
@@ -204,3 +194,25 @@ export function defaultPayloadFor(template, opts) {
 export function defaultLocksFor(template) {
   return template === 'contract' ? defaultContractLocks() : defaultInvoiceLocks();
 }
+
+/**
+ * Return a fresh copy of a preset scope for insertion via UI.
+ * @param {'full_addition'} presetId
+ * @returns {Array} groups array in the same shape used by scope_of_work.groups
+ */
+export function getScopePreset(presetId) {
+  if (presetId === 'full_addition') {
+    return DEFAULT_SCOPE_GROUPS.map((g) => ({
+      ...g,
+      tasks: g.tasks.map((t) => ({
+        task: t.task,
+        description: [...(t.description || [])],
+        qty: t.qty || 'Lump Sump',
+        unit_price_cents: 0,
+        amount_cents: 0,
+      })),
+    }));
+  }
+  return [];
+}
+export { DEFAULT_SCOPE_GROUPS };

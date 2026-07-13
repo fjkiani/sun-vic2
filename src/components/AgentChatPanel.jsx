@@ -5,12 +5,13 @@ import { useModelChoice } from './ModelPickerDropdown.jsx';
 // Chat panel that hits /api/agent/chat. Shows message history, tool-call chips, refused-lock
 // banners, and updates the parent document via onDocumentUpdate.
 
-export function AgentChatPanel({ document, onDocumentUpdate }) {
+export function AgentChatPanel({ document, onDocumentUpdate, floating = false }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [choice] = useModelChoice();
+  const [open, setOpen] = useState(false);
   const scrollerRef = useRef(null);
 
   useEffect(() => {
@@ -44,13 +45,26 @@ export function AgentChatPanel({ document, onDocumentUpdate }) {
     } finally { setBusy(false); }
   }
 
-  return (
-    <div className="flex flex-col h-full">
-      <div className="px-4 py-3 border-b border-neutral-200 bg-white rounded-t-xl">
-        <div className="font-semibold">Agent</div>
-        <div className="text-xs text-neutral-500">
-          Ask to edit the {document.template}. Legal blocks are locked by default.
+  const panelContent = (
+    <div className={floating
+        ? "flex flex-col h-full bg-white border border-neutral-200 rounded-xl shadow-2xl"
+        : "flex flex-col h-full"}>
+      <div className="px-4 py-3 border-b border-neutral-200 bg-white rounded-t-xl flex items-center justify-between">
+        <div>
+          <div className="font-semibold">Agent</div>
+          <div className="text-xs text-neutral-500">
+            Ask to edit the {document.template}. Legal blocks are locked by default.
+          </div>
         </div>
+        {floating && (
+          <button
+            onClick={() => setOpen(false)}
+            className="text-neutral-400 hover:text-neutral-900 text-lg"
+            aria-label="Close agent panel"
+          >
+            ×
+          </button>
+        )}
       </div>
       <div ref={scrollerRef} className="flex-1 overflow-y-auto p-4 space-y-3 bg-neutral-50">
         {messages.length === 0 && (
@@ -80,6 +94,24 @@ export function AgentChatPanel({ document, onDocumentUpdate }) {
           </button>
         </div>
       </div>
+    </div>
+  );
+
+  if (!floating) return panelContent;
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="fixed bottom-4 right-4 z-40 rounded-full bg-sunvic-500 hover:bg-sunvic-600 text-white w-14 h-14 shadow-lg flex items-center justify-center text-2xl"
+        aria-label="Open agent chat"
+      >
+        💬
+      </button>
+    );
+  }
+  return (
+    <div className="fixed bottom-4 right-4 z-40 w-96 h-[600px] max-h-[85vh]">
+      {panelContent}
     </div>
   );
 }
