@@ -15,8 +15,10 @@ export const handler = async (event) => {
 
   const id = event.queryStringParameters?.id;
   if (!id) return json(400, { error: 'missing_id' });
+  // Strip query string before matching /summary — Vercel's req.url includes it.
+  const pathNoQuery = String(event.path || '').split('?')[0];
   const isSummary = event.queryStringParameters?.summary === '1'
-    || event.path?.endsWith('/summary');
+    || pathNoQuery.endsWith('/summary');
 
   try {
     if (event.httpMethod === 'GET') {

@@ -10,6 +10,7 @@ function fmtUSD(cents) {
 
 export function ProjectSummaryCard({ project, money, onSave }) {
   const save = (field, value) => onSave({ [field]: value });
+  const m = money || {};
 
   return (
     <div className="bg-white border border-neutral-200 rounded-xl overflow-hidden">
@@ -51,10 +52,10 @@ export function ProjectSummaryCard({ project, money, onSave }) {
           </div>
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <StatBox label="Contract total" value={fmtUSD(money.contract_total_cents)} tone="neutral" />
-          <StatBox label="Billed" value={fmtUSD(money.billed_cents)} tone="blue" />
-          <StatBox label="Paid" value={fmtUSD(money.paid_cents)} tone="green" />
-          <StatBox label="Outstanding" value={fmtUSD(money.outstanding_cents)} tone="amber" />
+          <StatBox label="Contract total" value={fmtUSD(m.contract_total_cents)} tone="neutral" />
+          <StatBox label="Billed" value={fmtUSD(m.billed_cents)} tone="blue" />
+          <StatBox label="Paid" value={fmtUSD(m.paid_cents)} tone="green" />
+          <StatBox label="Outstanding" value={fmtUSD(m.outstanding_cents)} tone="amber" />
         </div>
       </div>
       {project.notes !== undefined && (

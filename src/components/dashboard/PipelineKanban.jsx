@@ -46,6 +46,7 @@ function Lane({ title, docs = [], tone = 'neutral' }) {
 }
 
 export function PipelineKanban({ pipeline }) {
+  const p = pipeline || { contracts: {}, invoices: {} };
   const laneTone = (kind, name) => {
     if (kind === 'contract' && name === 'signed') return 'green';
     if (kind === 'contract' && name === 'void') return 'red';
@@ -68,7 +69,7 @@ export function PipelineKanban({ pipeline }) {
               <Lane
                 key={lane}
                 title={lane}
-                docs={pipeline?.contracts?.[lane] || []}
+                docs={p?.contracts?.[lane] || []}
                 tone={laneTone('contract', lane)}
               />
             ))}
@@ -81,7 +82,7 @@ export function PipelineKanban({ pipeline }) {
               <Lane
                 key={lane}
                 title={lane}
-                docs={pipeline?.invoices?.[lane] || []}
+                docs={p?.invoices?.[lane] || []}
                 tone={laneTone('invoice', lane)}
               />
             ))}

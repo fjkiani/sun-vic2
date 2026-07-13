@@ -71,15 +71,32 @@ export function DocumentEditorPage() {
   const midScrollRef = useRef(null);
   const syncingRef = useRef(false);
 
-  useEffect(() => { if (data?.document) setDoc(data.document); }, [data]);
+  // Refs used inside the debounced apiCall — they must always reflect the
+  // current doc, otherwise stale updated_at values trigger spurious 409s.
+  const docIdRef = useRef(null);
+  const updatedAtRef = useRef(null);
+
+  useEffect(() => {
+    if (data?.document) setDoc(data.document);
+  }, [data]);
+  useEffect(() => {
+    docIdRef.current = doc?.id || null;
+    updatedAtRef.current = doc?.updated_at || null;
+  }, [doc?.id, doc?.updated_at]);
   useEffect(() => { saveLayout(layout); }, [layout]);
 
   // Debounced save with 409 conflict detection.
   const { queueSave, flushNow, saving, lastSaved, error: saveError, conflict, dismissConflict } = useDebouncedSave({
     apiCall: async (patch) => {
-      const opts = doc?.updated_at ? { expectedUpdatedAt: doc.updated_at } : {};
-      const result = await api.updateDocument(doc.id, patch, opts);
-      if (result?.document) setDoc(result.document);
+      const id = docIdRef.current;
+      const expected = updatedAtRef.current;
+      if (!id) throw new Error('no document loaded');
+      const opts = expected ? { expectedUpdatedAt: expected } : {};
+      const result = await api.updateDocument(id, patch, opts);
+      if (result?.document) {
+        setDoc(result.document);
+        updatedAtRef.current = result.document.updated_at;
+      }
       return result;
     },
     debounceMs: 500,
@@ -96,20 +113,29 @@ export function DocumentEditorPage() {
   }, [flushNow]);
 
   // saveField: apply patch locally (optimistic), queue debounced PATCH.
+  // Use functional setState so rapid consecutive edits chain against the
+  // latest committed payload rather than a stale closure of doc.payload.
   const saveField = useCallback((pathValueMap) => {
-    if (!doc) return;
-    const nextPayload = Object.entries(pathValueMap).reduce((acc, [p, v]) => setPath(acc, p, v), doc.payload);
-    setDoc((d) => d ? { ...d, payload: nextPayload } : d);
-    queueSave({ payload: nextPayload });
-  }, [doc, queueSave]);
+    setDoc((d) => {
+      if (!d) return d;
+      const nextPayload = Object.entries(pathValueMap).reduce(
+        (acc, [p, v]) => setPath(acc, p, v),
+        d.payload
+      );
+      queueSave({ payload: nextPayload });
+      return { ...d, payload: nextPayload };
+    });
+  }, [queueSave]);
 
   const toggleLock = useCallback((path) => {
-    if (!doc) return;
-    const wasLocked = !!doc.locks?.[path];
-    const nextLocks = { ...(doc.locks || {}), [path]: !wasLocked };
-    setDoc((d) => d ? { ...d, locks: nextLocks } : d);
-    queueSave({ locks: nextLocks });
-  }, [doc, queueSave]);
+    setDoc((d) => {
+      if (!d) return d;
+      const wasLocked = !!d.locks?.[path];
+      const nextLocks = { ...(d.locks || {}), [path]: !wasLocked };
+      queueSave({ locks: nextLocks });
+      return { ...d, locks: nextLocks };
+    });
+  }, [queueSave]);
 
   async function runGeneratePdf() {
     if (!doc) return;
@@ -132,10 +158,13 @@ export function DocumentEditorPage() {
   }
   async function setStatus(status) {
     if (!doc) return;
+    // Flush pending saves first so If-Match is fresh.
+    await flushNow();
     try {
-      const opts = doc?.updated_at ? { expectedUpdatedAt: doc.updated_at } : {};
+      const opts = updatedAtRef.current ? { expectedUpdatedAt: updatedAtRef.current } : {};
       const { document } = await api.updateDocument(doc.id, { status }, opts);
       setDoc(document);
+      updatedAtRef.current = document.updated_at;
     } catch (e) { alert(`Status change failed: ${e.message || e}`); }
   }
 

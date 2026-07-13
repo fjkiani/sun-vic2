@@ -64,6 +64,13 @@ export function ProjectDashboardPage() {
   }
   if (!data || !localProject) return null;
 
+  // If the API returned only { project } (e.g. summary route mis-detected) fall back gracefully.
+  const money = data.money;
+  const pipeline = data.pipeline;
+  const series = data.series;
+  const milestones = data.milestones;
+  const summaryComplete = !!(money && pipeline);
+
   return (
     <div className="space-y-4">
       {/* Header row */}
@@ -82,15 +89,21 @@ export function ProjectDashboardPage() {
       </div>
 
       {/* Row 1: summary card (full width) */}
-      <ProjectSummaryCard project={localProject} money={data.money} onSave={savePatch} />
+      <ProjectSummaryCard project={localProject} money={money} onSave={savePatch} />
+
+      {!summaryComplete && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800">
+          Dashboard aggregates are unavailable. If you just migrated, retry after a few seconds; otherwise the summary API is degraded.
+        </div>
+      )}
 
       {/* Row 2: kanban (full width, scrollable) */}
-      <PipelineKanban pipeline={data.pipeline} />
+      <PipelineKanban pipeline={pipeline} />
 
       {/* Row 3: money chart + milestone timeline side-by-side */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <MoneyChart series={data.series} money={data.money} />
-        <MilestoneTimeline milestones={data.milestones} />
+        <MoneyChart series={series} money={money} />
+        <MilestoneTimeline milestones={milestones} />
       </div>
     </div>
   );

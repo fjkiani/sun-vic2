@@ -7,7 +7,8 @@ function fmtUSD(cents) {
   return ((Number(cents) || 0) / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 }
 
-export function MoneyChart({ series = [], money = {} }) {
+export function MoneyChart({ series = [], money = null }) {
+  const m = money || {};
   const width = 640;
   const height = 220;
   const margin = { top: 20, right: 20, bottom: 40, left: 60 };
@@ -69,9 +70,9 @@ export function MoneyChart({ series = [], money = {} }) {
       <div className="p-4">
         {/* Summary row */}
         <div className="grid grid-cols-3 gap-2 mb-3">
-          <SummaryStat label="Billed" value={fmtUSD(money.billed_cents)} tone="blue" />
-          <SummaryStat label="Paid" value={fmtUSD(money.paid_cents)} tone="green" />
-          <SummaryStat label="Outstanding" value={fmtUSD(money.outstanding_cents)} tone="amber" />
+          <SummaryStat label="Billed" value={fmtUSD(m.billed_cents)} tone="blue" />
+          <SummaryStat label="Paid" value={fmtUSD(m.paid_cents)} tone="green" />
+          <SummaryStat label="Outstanding" value={fmtUSD(m.outstanding_cents)} tone="amber" />
         </div>
         {series.length === 0 ? (
           <div className="border-2 border-dashed border-neutral-300 rounded p-8 text-center text-xs text-neutral-500">
