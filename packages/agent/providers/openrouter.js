@@ -46,6 +46,12 @@ export class OpenRouterProvider extends LLMProvider {
       temperature,
       max_tokens,
     };
+    // Reasoning models (GPT-OSS, Nemotron, DeepSeek) burn output tokens on hidden reasoning
+    // before emitting content. Cap that at "low" so we don't blow the context window on
+    // structured-output tasks that don't need long deliberation.
+    if (/gpt-oss|nemotron|deepseek-r/i.test(this.model)) {
+      body.reasoning = { effort: 'low' };
+    }
     if (response_format?.type === 'json_object') {
       body.response_format = { type: 'json_object' };
     } else if (response_format?.type === 'json_schema' && response_format.schema) {
