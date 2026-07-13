@@ -1,5 +1,6 @@
 import React from 'react';
 import { LockableField } from '../LockableField.jsx';
+import { SectionCard } from '../SectionCard.jsx';
 
 export function LegalEditor({ doc, onSave, onToggleLock }) {
   const p = doc.payload;
