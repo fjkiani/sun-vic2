@@ -52,6 +52,18 @@ export const handler = async (event) => {
     const body = parseJson(event);
     if (body === null) return json(400, { error: 'bad_json' });
 
+    // Optimistic concurrency: if the client sent an If-Match header with the
+    // updated_at they last saw, refuse the write if the doc has moved on.
+    // Header names are normalized to lowercase by the Vercel adapter and by Netlify.
+    const ifMatch = event.headers?.['if-match'];
+    if (ifMatch && doc.updated_at && ifMatch !== doc.updated_at) {
+      return json(409, {
+        error: 'conflict',
+        detail: 'Document was updated in another tab/session since you loaded it.',
+        current_updated_at: doc.updated_at,
+      });
+    }
+
     const updates = {};
     let newPayload = doc.payload;
     let newLocks   = doc.locks || {};
@@ -109,6 +121,15 @@ export const handler = async (event) => {
       changed_by: user.id,
       change_source: body.change_source || 'user_edit',
     });
+
+    // If this is a contract, keep the project's denormalized total in sync.
+    if (updated.template === 'contract' && updated.project_id) {
+      await svc
+        .from('projects')
+        .update({ contract_total_cents: updated.total_cents || 0 })
+        .eq('id', updated.project_id)
+        .eq('created_by', user.id);
+    }
 
     return json(200, { document: updated, skipped_locks: skippedLocks });
   }

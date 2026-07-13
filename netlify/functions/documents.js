@@ -9,6 +9,7 @@ import { payloadSchemaFor } from '../../packages/schema/documents.js';
 import { totalCentsFor } from './_shared/totals.js';
 import { generateOneshot } from '../../packages/agent/oneshot.js';
 import { classifyTemplate } from '../../packages/agent/classifier.js';
+import { findOrCreateProjectForDocument } from '../../packages/db/projects.js';
 
 export const handler = async (event) => {
   const pre = handleOptions(event);
@@ -24,7 +25,7 @@ export const handler = async (event) => {
     const q = event.queryStringParameters || {};
     let query = svc
       .from('documents')
-      .select('id, doc_number, template, status, title, client_name, client_email, project_ref, total_cents, updated_at, created_at, pdf_object_key, pdf_generated_at')
+      .select('id, doc_number, template, status, title, client_name, client_email, project_ref, project_id, total_cents, updated_at, created_at, pdf_object_key, pdf_generated_at')
       .eq('created_by', user.id)
       .order('updated_at', { ascending: false });
     if (q.template) query = query.eq('template', q.template);
@@ -48,7 +49,7 @@ export const handler = async (event) => {
     if (body.prompt && !payload) {
       if (!template) {
         try {
-          template = await classifyTemplate(body.prompt, { providerId: body.provider });
+          template = await classifyTemplate(body.prompt, { providerId: body.provider, userId: user.id });
         } catch (e) {
           return json(502, { error: 'classifier_failed', detail: String(e?.message || e) });
         }
@@ -59,6 +60,7 @@ export const handler = async (event) => {
           prompt: body.prompt,
           providerId: body.provider,
           model: body.model,
+          userId: user.id,
         });
         payload = oneshotResult.payload;
         template = oneshotResult.template; // may have been reclassified
@@ -98,6 +100,25 @@ export const handler = async (event) => {
       : finalPayload.homeowner?.email || null;
     const projectRef = template === 'invoice' ? finalPayload.project_ref || null : null;
 
+    // Find-or-create the project so every document lands under one.
+    let projectId = null;
+    try {
+      const proj = await findOrCreateProjectForDocument(user.id, finalPayload, template);
+      projectId = proj?.id || null;
+      // If this is a contract, refresh the project's denormalized contract_total.
+      if (proj && template === 'contract') {
+        await svc
+          .from('projects')
+          .update({ contract_total_cents: totalCents })
+          .eq('id', proj.id)
+          .eq('created_by', user.id);
+      }
+    } catch (e) {
+      // Non-fatal — log but continue. Doc creation should not fail due to project attach.
+      // eslint-disable-next-line no-console
+      console.warn('findOrCreateProjectForDocument failed:', e?.message || e);
+    }
+
     const { data: doc, error: insErr } = await svc
       .from('documents')
       .insert({
@@ -108,6 +129,7 @@ export const handler = async (event) => {
         client_name: clientName,
         client_email: clientEmail,
         project_ref: projectRef,
+        project_id: projectId,
         total_cents: totalCents,
         payload: finalPayload,
         locks,

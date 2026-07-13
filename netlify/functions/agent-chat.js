@@ -85,6 +85,7 @@ export const handler = async (event) => {
       docId: doc.id,
       history: effectiveHistory,
       dispatch,
+      userId: user.id,
     });
   } catch (e) {
     return json(500, { error: 'chat_failed', detail: String(e?.message || e) });

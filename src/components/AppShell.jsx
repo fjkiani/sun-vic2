@@ -21,6 +21,22 @@ export function AppShell() {
             </div>
           </NavLink>
           <div className="flex items-center gap-4">
+            <NavLink
+              to="/projects"
+              className={({ isActive }) =>
+                `text-sm hover:text-neutral-900 ${isActive ? 'text-sunvic-600 font-semibold' : 'text-neutral-600'}`
+              }
+            >
+              Projects
+            </NavLink>
+            <NavLink
+              to="/documents"
+              className={({ isActive }) =>
+                `text-sm hover:text-neutral-900 ${isActive ? 'text-sunvic-600 font-semibold' : 'text-neutral-600'}`
+              }
+            >
+              Documents
+            </NavLink>
             <ModelPickerDropdown />
             <NavLink
               to="/settings"

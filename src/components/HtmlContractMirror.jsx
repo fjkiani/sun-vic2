@@ -14,9 +14,9 @@ function parseCurrency(text) {
   return Math.round(dollars * 100);
 }
 
-function SectionHeader({ letter, title }) {
+function SectionHeader({ letter, title, id }) {
   return (
-    <div className="mt-6 mb-3 border-b-2 border-neutral-900 pb-1">
+    <div data-section-id={id || (letter ? letter.toLowerCase() : title.toLowerCase().replace(/\s+/g, '_'))} className="mt-6 mb-3 border-b-2 border-neutral-900 pb-1">
       <h2 className="text-sm font-bold uppercase tracking-wider text-neutral-900">
         {letter && <span className="mr-2">SECTION {letter}.</span>}
         {title}
@@ -329,7 +329,7 @@ function TextSection({ letter, title, path, payload, save, locks, extraFields = 
   );
 }
 
-export function HtmlContractMirror({ payload, template, onSave, locks = {}, onToggleLock }) {
+export function HtmlContractMirror({ payload, template, onSave, locks = {}, onToggleLock, scrollRef }) {
   const save = (path, value) => onSave({ [path]: value });
 
   if (template !== 'contract') {
@@ -337,7 +337,7 @@ export function HtmlContractMirror({ payload, template, onSave, locks = {}, onTo
   }
 
   return (
-    <div className="overflow-y-auto h-full py-6 px-4 bg-neutral-100">
+    <div ref={scrollRef} className="overflow-y-auto h-full py-6 px-4 bg-neutral-100">
       <div className="max-w-[850px] mx-auto bg-white shadow-lg rounded-md p-8 text-neutral-900" style={{ fontFamily: 'Liberation Sans, Arimo, DejaVu Sans' }}>
         <HeaderBlock payload={payload} save={save} locks={locks} />
 

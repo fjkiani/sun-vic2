@@ -2,13 +2,14 @@
 
 import { getAccessToken } from './supabase.js';
 
-async function request(method, path, body) {
+async function request(method, path, body, extraHeaders) {
   const token = await getAccessToken();
   const res = await fetch(path, {
     method,
     headers: {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(extraHeaders || {}),
     },
     body: body ? JSON.stringify(body) : undefined,
   });
@@ -23,6 +24,7 @@ async function request(method, path, body) {
     const err = new Error(data?.error || `HTTP ${res.status}`);
     err.status = res.status;
     err.detail = data?.detail || data;
+    err.data = data;
     throw err;
   }
   return data;
@@ -36,7 +38,11 @@ export const api = {
   },
   createDocument: (body) => request('POST', '/api/documents', body),
   getDocument:    (id) => request('GET', `/api/documents/${id}`),
-  updateDocument: (id, body) => request('PATCH', `/api/documents/${id}`, body),
+  updateDocument: (id, body, opts = {}) => {
+    // opts.expectedUpdatedAt → sends `If-Unmodified-Since` semantics as `If-Match` header.
+    const headers = opts.expectedUpdatedAt ? { 'If-Match': opts.expectedUpdatedAt } : undefined;
+    return request('PATCH', `/api/documents/${id}`, body, headers);
+  },
   deleteDocument: (id) => request('DELETE', `/api/documents/${id}`),
   generatePdf:    (id) => request('POST', `/api/documents/${id}/pdf`),
   emailDocument:  (id, body) => request('POST', `/api/documents/${id}/email`, body),
@@ -52,4 +58,14 @@ export const api = {
   listUserKeys:   () => request('GET', '/api/user-keys'),
   saveUserKey:    (provider, key) => request('POST', '/api/user-keys', { provider, key }),
   deleteUserKey:  (provider) => request('DELETE', '/api/user-keys', { provider }),
+
+  // Projects
+  listProjects:      (params = {}) => {
+    const qs = new URLSearchParams(params).toString();
+    return request('GET', `/api/projects${qs ? '?' + qs : ''}`);
+  },
+  getProject:        (id) => request('GET', `/api/projects/${id}`),
+  createProject:     (body) => request('POST', '/api/projects', body),
+  updateProject:     (id, body) => request('PATCH', `/api/projects/${id}`, body),
+  getProjectSummary: (id) => request('GET', `/api/projects/${id}/summary`),
 };

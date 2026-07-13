@@ -9,6 +9,8 @@ import { NewDocumentPage } from './pages/NewDocumentPage.jsx';
 import { DocumentEditorPage } from './pages/DocumentEditorPage.jsx';
 import { SignInPage } from './pages/SignInPage.jsx';
 import SettingsPage from './pages/SettingsPage.jsx';
+import { ProjectsListPage } from './pages/ProjectsListPage.jsx';
+import { ProjectDashboardPage } from './pages/ProjectDashboardPage.jsx';
 import { useSession } from './lib/hooks.js';
 
 const qc = new QueryClient({ defaultOptions: { queries: { staleTime: 30_000 } } });
@@ -31,6 +33,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <Route path="documents" element={<DocumentsListPage />} />
             <Route path="documents/new" element={<NewDocumentPage />} />
             <Route path="documents/:id" element={<DocumentEditorPage />} />
+            <Route path="projects" element={<ProjectsListPage />} />
+            <Route path="projects/:id" element={<ProjectDashboardPage />} />
             <Route path="settings" element={<SettingsPage />} />
           </Route>
         </Routes>
