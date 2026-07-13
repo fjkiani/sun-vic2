@@ -30,10 +30,11 @@ export function InlineEditable({
   // Sync external changes into the DOM (only when not focused, to avoid caret jumps)
   useEffect(() => {
     if (!ref.current) return;
-    if (!isFocused && ref.current.textContent !== value) {
-      ref.current.textContent = value || '';
+    const v = value == null ? '' : (typeof value === 'string' ? value : String(value));
+    if (!isFocused && ref.current.textContent !== v) {
+      ref.current.textContent = v;
     }
-    savedValueRef.current = value;
+    savedValueRef.current = v;
   }, [value, isFocused]);
 
   const commit = () => {
@@ -69,7 +70,9 @@ export function InlineEditable({
     }
   };
 
-  const isEmpty = !value || value === '';
+  // Defensive: coerce non-strings so a mis-typed prop never crashes React with error #31.
+  const safeValue = value == null ? '' : (typeof value === 'string' ? value : String(value));
+  const isEmpty = safeValue === '';
   const showPlaceholder = isEmpty && !isFocused;
 
   const Component = as;
@@ -94,7 +97,7 @@ export function InlineEditable({
       style={{ minWidth: showPlaceholder ? '4rem' : undefined, whiteSpace: multiline ? 'pre-wrap' : 'normal' }}
       {...rest}
     >
-      {showPlaceholder ? placeholder : value}
+      {showPlaceholder ? placeholder : safeValue}
     </Component>
   );
 }

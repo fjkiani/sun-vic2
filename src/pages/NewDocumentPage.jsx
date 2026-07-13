@@ -69,7 +69,16 @@ export function NewDocumentPage() {
             {busy ? 'Generating…' : 'Generate document'}
           </button>
         </div>
-        {error ? <div className="text-sm text-rose-600">{error}</div> : null}
+        {error ? (
+          <div className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded p-3">
+            <div className="font-medium">{error}</div>
+            {(error.includes('oneshot_failed') || error.includes('no_api_key') || error.includes('quota')) && (
+              <div className="text-xs mt-2 text-rose-700">
+                Add a valid API key on the <a href="/settings" className="underline font-semibold">Settings page</a>.
+              </div>
+            )}
+          </div>
+        ) : null}
       </div>
 
       {/* Manual */}

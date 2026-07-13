@@ -384,7 +384,11 @@ export function HtmlContractMirror({ payload, template, onSave, locks = {}, onTo
           <ol className="list-decimal ml-5 mt-2">
             {(payload.dispute_resolution?.steps || []).map((s, i) => (
               <li key={i}>
-                <InlineEditable value={s} onSave={(v) => save(`dispute_resolution.steps.${i}`, v)} multiline placeholder={`(step ${i + 1})`} />
+                <span className="font-semibold">
+                  <InlineEditable value={s?.name || ''} onSave={(v) => save(`dispute_resolution.steps.${i}.name`, v)} placeholder={`(name)`} />
+                  :{' '}
+                </span>
+                <InlineEditable value={s?.text || ''} onSave={(v) => save(`dispute_resolution.steps.${i}.text`, v)} multiline placeholder={`(step ${i + 1} body)`} />
               </li>
             ))}
           </ol>
