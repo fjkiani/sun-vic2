@@ -56,17 +56,74 @@ export class CohereProvider extends LLMProvider {
     return { text, raw: data };
   }
 
+  // ─── Message-shape translation (internal ↔ Cohere v2) ─────
+  //
+  // Our internal shape is OpenAI-flavored:
+  //   assistant:  { role, content, tool_calls: [{ id, name, arguments }] }
+  //   tool:       { role: 'tool', content: '<json string>', tool_call_id }
+  //
+  // Cohere v2 wants:
+  //   assistant:  { role, tool_plan, tool_calls: [{ id, type: 'function',
+  //                 function: { name, arguments: '<string>' } }] }
+  //   tool:       { role: 'tool', tool_call_id,
+  //                 content: [{ type: 'document', document: { data: '<string>' } }] }
+  //
+  // Round-trip failure modes if we skip translation:
+  //   - Sending our bare { name, description, parameters } tools -> 400
+  //     "missing required field: 'type'".
+  //   - Sending our tool-role message with raw string content -> Cohere
+  //     rejects (expects an array of documents).
+  //   - Sending our internal tool_calls without type/function wrapping ->
+  //     Cohere silently drops them, model forgets it called anything.
+  #translateForCohere(messages) {
+    return messages.map((m) => {
+      // Assistant with tool_calls -> add type/function wrap + a tool_plan.
+      if (m.role === 'assistant' && m.tool_calls?.length) {
+        return {
+          role: 'assistant',
+          tool_plan: m.content || 'Calling tools.',
+          tool_calls: m.tool_calls.map((tc) => ({
+            id: tc.id,
+            type: 'function',
+            function: {
+              name: tc.function?.name || tc.name,
+              arguments: typeof tc.function?.arguments === 'string'
+                ? tc.function.arguments
+                : (typeof tc.arguments === 'string'
+                  ? tc.arguments
+                  : JSON.stringify(tc.function?.arguments || tc.arguments || {})),
+            },
+          })),
+        };
+      }
+      // Tool result -> wrap raw content into a document array.
+      if (m.role === 'tool') {
+        const raw = typeof m.content === 'string' ? m.content : JSON.stringify(m.content ?? {});
+        return {
+          role: 'tool',
+          tool_call_id: m.tool_call_id,
+          content: [{ type: 'document', document: { data: raw } }],
+        };
+      }
+      // user / system / plain assistant pass through.
+      return { role: m.role, content: m.content ?? '' };
+    });
+  }
+
   async chat({ system, messages, tools, temperature = 0.3, max_tokens = 2000 }) {
     const body = {
       model: this.model,
       messages: [
         ...(system ? [{ role: 'system', content: system }] : []),
-        ...messages,
+        ...this.#translateForCohere(messages),
       ],
       temperature,
       max_tokens,
     };
-    if (tools?.length) body.tools = tools;
+    if (tools?.length) {
+      body.tools = tools.map((t) => ({ type: 'function', function: t }));
+      body.tool_choice = 'auto';
+    }
     const data = await this.#post(body);
     const msg = data.message || {};
     const text = msg.content?.map((c) => c.text || '').join('') || '';
