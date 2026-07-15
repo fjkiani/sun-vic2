@@ -22,7 +22,8 @@ export const handler = async (event) => {
       });
       return json(200, { threads: rows });
     } catch (e) {
-      return json(500, { error: 'list_threads_failed', detail: e.message });
+      console.error('[threads.GET] failure:', e);
+      return json(500, { error: 'list_threads_failed', detail: e?.message || String(e), pgCode: e?.pgCode });
     }
   }
 
@@ -36,7 +37,8 @@ export const handler = async (event) => {
       });
       return json(201, { thread: created });
     } catch (e) {
-      return json(500, { error: 'create_thread_failed', detail: e.message });
+      console.error('[threads.POST] failure:', e);
+      return json(500, { error: 'create_thread_failed', detail: e?.message || String(e), pgCode: e?.pgCode });
     }
   }
 

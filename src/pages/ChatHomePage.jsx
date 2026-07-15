@@ -83,16 +83,31 @@ export function ChatHomePage() {
             {starting ? 'Starting…' : 'Start'}
           </button>
         </form>
-        {error && (
-          <div className="mt-2 text-xs text-white bg-red-500/40 rounded p-2">
-            Couldn&rsquo;t start thread: {error.message}
-            {String(error.detail || '').includes('chat_threads') && (
-              <div className="mt-1">
-                Have you run <code className="bg-red-800/40 px-1 py-0.5 rounded">0004_chat_threads.sql</code> in the Supabase SQL editor?
-              </div>
-            )}
-          </div>
-        )}
+        {error && (() => {
+          const detail = error?.data?.detail || error?.detail;
+          const pgCode = error?.data?.pgCode;
+          const detailStr = typeof detail === 'string' ? detail : JSON.stringify(detail || {});
+          const looksLikeMissingTable =
+            pgCode === '42P01' ||
+            detailStr.toLowerCase().includes('relation') && detailStr.toLowerCase().includes('does not exist') ||
+            detailStr.toLowerCase().includes('chat_threads');
+          return (
+            <div className="mt-2 text-xs text-white bg-red-500/40 rounded p-2 space-y-1">
+              <div>Couldn&rsquo;t start thread: {error.message || 'unknown_error'}</div>
+              {detail && (
+                <div className="opacity-80 break-words">Detail: <code className="bg-red-800/40 px-1 py-0.5 rounded">{detailStr}</code></div>
+              )}
+              {pgCode && (
+                <div className="opacity-80">Postgres code: <code className="bg-red-800/40 px-1 py-0.5 rounded">{pgCode}</code></div>
+              )}
+              {looksLikeMissingTable && (
+                <div className="mt-1">
+                  Table not found. Run <code className="bg-red-800/40 px-1 py-0.5 rounded">supabase/migrations/0004_chat_threads.sql</code> (and 0003 first if you skipped it).
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </div>
 
       {/* Starter cards */}

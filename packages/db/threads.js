@@ -3,6 +3,21 @@
 
 import { serviceClient } from './supabase.js';
 
+// Turn a Supabase PostgrestError into a plain Error with useful message.
+function pgErr(prefix, error) {
+  const msg = [
+    prefix,
+    error?.message,
+    error?.code && `code=${error.code}`,
+    error?.details,
+    error?.hint,
+  ].filter(Boolean).join(' | ');
+  const e = new Error(msg || prefix);
+  e.pgCode = error?.code;
+  return e;
+}
+
+
 // ────────────────────────────────────────────────────────────
 // Threads
 // ────────────────────────────────────────────────────────────
@@ -17,7 +32,7 @@ export async function listThreads(userId, { projectId, limit = 40, q } = {}) {
   if (projectId) query = query.eq('project_id', projectId);
   if (q) query = query.ilike('title', `%${q}%`);
   const { data, error } = await query;
-  if (error) throw error;
+  if (error) throw pgErr('listThreads', error);
   return data || [];
 }
 
@@ -45,7 +60,7 @@ export async function createThread(userId, { title, projectId } = {}) {
     .insert(insert)
     .select('*')
     .single();
-  if (error) throw error;
+  if (error) throw pgErr('threads.write', error);
   return data;
 }
 
@@ -62,7 +77,7 @@ export async function updateThread(threadId, userId, patch) {
     .eq('user_id', userId)
     .select('*')
     .single();
-  if (error) throw error;
+  if (error) throw pgErr('threads.write', error);
   return data;
 }
 
@@ -72,7 +87,7 @@ export async function deleteThread(threadId, userId) {
     .delete()
     .eq('id', threadId)
     .eq('user_id', userId);
-  if (error) throw error;
+  if (error) throw pgErr('deleteThread', error);
   return { ok: true };
 }
 
@@ -86,7 +101,7 @@ export async function listMessages(threadId) {
     .select('*')
     .eq('thread_id', threadId)
     .order('created_at', { ascending: true });
-  if (error) throw error;
+  if (error) throw pgErr('listMessages', error);
   return data || [];
 }
 
@@ -104,7 +119,7 @@ export async function appendMessage(threadId, message) {
     .insert(row)
     .select('*')
     .single();
-  if (error) throw error;
+  if (error) throw pgErr('appendMessage', error);
   await serviceClient()
     .from('chat_threads')
     .update({ last_message_at: new Date().toISOString() })
@@ -126,7 +141,7 @@ export async function appendMessages(threadId, messages) {
     .from('chat_messages')
     .insert(rows)
     .select('*');
-  if (error) throw error;
+  if (error) throw pgErr('appendMessages', error);
   await serviceClient()
     .from('chat_threads')
     .update({ last_message_at: new Date().toISOString() })
@@ -161,8 +176,8 @@ export async function listUserMemory(userId, { limit = 20 } = {}) {
       .order('updated_at', { ascending: false })
       .limit(limit),
   ]);
-  if (projRes.error) throw projRes.error;
-  if (docRes.error) throw docRes.error;
+  if (projRes.error) throw pgErr('memory.projects', projRes.error);
+  if (docRes.error) throw pgErr('memory.documents', docRes.error);
   return {
     projects: projRes.data || [],
     documents: docRes.data || [],
