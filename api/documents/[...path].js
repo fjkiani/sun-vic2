@@ -1,21 +1,18 @@
-// Consolidated Vercel dispatcher for all /api/documents/* endpoints.
-// Collapses 5 previously-separate functions into 1 to stay under the 12-function cap.
+// Consolidated Vercel dispatcher for /api/documents/:id and /api/documents/:id/{pdf,email,public}.
+// Zero-segment /api/documents is handled by the sibling index.js.
 //
 // Routes:
-//   GET/POST /api/documents                  → netlify/functions/documents.js  (list/create)
-//   GET/PATCH/DELETE /api/documents/:id      → netlify/functions/document.js   (single)
+//   GET/PATCH/DELETE /api/documents/:id      → netlify/functions/document.js
 //   POST /api/documents/:id/pdf              → netlify/functions/document-pdf.js
 //   POST /api/documents/:id/email            → netlify/functions/document-email.js
 //   GET  /api/documents/:id/public           → netlify/functions/document-public.js
 
 import { adapt } from '../_lib/adapt.js';
-import { handler as listHandler }   from '../../netlify/functions/documents.js';
 import { handler as itemHandler }   from '../../netlify/functions/document.js';
 import { handler as pdfHandler }    from '../../netlify/functions/document-pdf.js';
 import { handler as emailHandler }  from '../../netlify/functions/document-email.js';
 import { handler as publicHandler } from '../../netlify/functions/document-public.js';
 
-const listAdapter   = adapt(listHandler);
 const itemAdapter   = adapt(itemHandler);
 const pdfAdapter    = adapt(pdfHandler);
 const emailAdapter  = adapt(emailHandler);
@@ -25,7 +22,7 @@ export default async function documentsRouter(req, res) {
   const raw = req.query?.path;
   const segments = Array.isArray(raw) ? raw : (raw ? [raw] : []);
 
-  // /api/documents/:id/pdf | email | public
+  // /api/documents/:id/{pdf,email,public}
   if (segments.length === 2) {
     const [id, sub] = segments;
     req.query = { ...(req.query || {}), id };
@@ -36,15 +33,10 @@ export default async function documentsRouter(req, res) {
     return res.send(JSON.stringify({ error: 'not_found', detail: `no route for /api/documents/${id}/${sub}` }));
   }
 
-  // /api/documents/:id (get/patch/delete)
+  // /api/documents/:id
   if (segments.length === 1) {
     req.query = { ...(req.query || {}), id: segments[0] };
     return itemAdapter(req, res);
-  }
-
-  // /api/documents (list/create)
-  if (segments.length === 0) {
-    return listAdapter(req, res);
   }
 
   res.status(404).setHeader('content-type', 'application/json');
