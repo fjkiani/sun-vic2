@@ -1,9 +1,12 @@
-// OpenRouter adapter — OpenAI-compatible endpoint. Default model: openai/gpt-oss-20b.
+// OpenRouter adapter — OpenAI-compatible endpoint.
+// Default is 'openrouter/free' — a meta-router that auto-picks whichever
+// free model is currently available. openai/gpt-oss-20b lost its free tier
+// in mid-2026, so we no longer default to it.
 
 import { LLMProvider, ProviderError } from './types.js';
 
 const OR_URL = 'https://openrouter.ai/api/v1/chat/completions';
-const DEFAULT_MODEL = 'openai/gpt-oss-20b';
+const DEFAULT_MODEL = 'openrouter/free';
 
 export class OpenRouterProvider extends LLMProvider {
   constructor({ apiKey, model } = {}) {
@@ -49,7 +52,9 @@ export class OpenRouterProvider extends LLMProvider {
     // Reasoning models (GPT-OSS, Nemotron, DeepSeek) burn output tokens on hidden reasoning
     // before emitting content. Cap that at "low" so we don't blow the context window on
     // structured-output tasks that don't need long deliberation.
-    if (/gpt-oss|nemotron|deepseek-r/i.test(this.model)) {
+    // Reasoning-shaped models burn hidden reasoning tokens before emitting content;
+    // cap effort so structured-output tasks don't blow the context window.
+    if (/gpt-oss|nemotron|deepseek-r|qwen3|o1|o3|thinking/i.test(this.model)) {
       body.reasoning = { effort: 'low' };
     }
     if (response_format?.type === 'json_object') {

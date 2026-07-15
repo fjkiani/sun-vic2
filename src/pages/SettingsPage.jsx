@@ -8,7 +8,7 @@ import { api } from '../lib/api.js';
  */
 
 const PROVIDERS = [
-  { id: 'openrouter', label: 'OpenRouter', help: 'sk-or-v1-... — used for gpt-oss and OpenAI-compatible models.' },
+  { id: 'openrouter', label: 'OpenRouter', help: 'sk-or-v1-... — routes to any free model (Llama, Qwen, Nemotron, Gemma, etc). Default: openrouter/free.' },
   { id: 'cohere', label: 'Cohere', help: 'cohere_... — Command A tool-calling.' },
   { id: 'gemma', label: 'Google Gemma', help: 'Google AI Studio API key — no tool-calling, oneshot mode only.' },
   { id: 'resend', label: 'Resend (email)', help: 're_... — for outbound email delivery.' },
