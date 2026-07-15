@@ -37,22 +37,24 @@ export const handler = async (event) => {
       requires_key: 'OPENROUTER_API_KEY',
       available: !!process.env.OPENROUTER_API_KEY || userProviders.has('openrouter'),
       user_key_present: userProviders.has('openrouter'),
-      default_model: 'openrouter/free',
+      default_model: 'meta-llama/llama-3.3-70b-instruct:free',
       supports_tools: true,
       // Curated list of currently-free OpenRouter models that also support
       // tool/function calling (verified live from openrouter.ai/api/v1/models).
-      // 'openrouter/free' is the meta-router — it auto-picks a working free model.
-      // If a specific pick goes paid, users can still use the meta-router.
+      // Order = recommended usage. Tool-clean host-native providers first,
+      // meta-router last (it can occasionally pick a provider that rejects
+      // our OpenAI-format tool schema — we constrain it with require_parameters
+      // but keep it as a fallback rather than the default).
       models: [
-        { id: 'openrouter/free',                         label: 'Auto (free router)',       ctx: 200000 },
-        { id: 'openai/gpt-oss-20b:free',                 label: 'GPT-OSS 20B (free)',       ctx: 131072 },
-        { id: 'meta-llama/llama-3.3-70b-instruct:free',  label: 'Llama 3.3 70B (free)',     ctx: 131072 },
-        { id: 'qwen/qwen3-coder:free',                   label: 'Qwen3 Coder 480B (free)',  ctx: 1048576 },
-        { id: 'qwen/qwen3-next-80b-a3b-instruct:free',   label: 'Qwen3 Next 80B (free)',    ctx: 262144 },
-        { id: 'nvidia/nemotron-3-nano-9b-v2:free',       label: 'Nemotron Nano 9B (free)',  ctx: 128000 },
-        { id: 'nvidia/nemotron-3-ultra-550b-a55b:free',  label: 'Nemotron Ultra 550B (free)', ctx: 1000000 },
-        { id: 'google/gemma-4-31b-it:free',              label: 'Gemma 4 31B (free)',       ctx: 262144 },
-        { id: 'cohere/north-mini-code:free',             label: 'Cohere North Mini (free)', ctx: 256000 },
+        { id: 'meta-llama/llama-3.3-70b-instruct:free',  label: 'Llama 3.3 70B (free) — recommended', ctx: 131072 },
+        { id: 'google/gemma-4-31b-it:free',              label: 'Gemma 4 31B (free)',                 ctx: 262144 },
+        { id: 'qwen/qwen3-coder:free',                   label: 'Qwen3 Coder 480B (free)',            ctx: 1048576 },
+        { id: 'qwen/qwen3-next-80b-a3b-instruct:free',   label: 'Qwen3 Next 80B (free)',              ctx: 262144 },
+        { id: 'openai/gpt-oss-20b:free',                 label: 'GPT-OSS 20B (free)',                 ctx: 131072 },
+        { id: 'cohere/north-mini-code:free',             label: 'Cohere North Mini (free)',           ctx: 256000 },
+        { id: 'nvidia/nemotron-3-nano-9b-v2:free',       label: 'Nemotron Nano 9B (free)',            ctx: 128000 },
+        { id: 'nvidia/nemotron-3-ultra-550b-a55b:free',  label: 'Nemotron Ultra 550B (free)',         ctx: 1000000 },
+        { id: 'openrouter/free',                         label: 'Auto (free meta-router)',            ctx: 200000 },
       ],
     },
     {

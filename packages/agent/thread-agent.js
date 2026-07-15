@@ -1,16 +1,24 @@
-// Thread-agent orchestrator.
+// Thread-agent orchestrator — slot-driven.
 //
-// This is the "big" agent that owns the whole chat thread. It is responsible for:
-//   - Loading the thread (state machine + full message history).
-//   - Assembling memory context: contractor identity, recent projects, doc summaries.
-//   - Running one LLM turn with a tool catalog scoped to the current stage.
-//   - Applying the tool calls (create doc, ask user, send PDF, refuse...).
-//   - Persisting new messages + updating thread state (stage, clarify_count).
-//   - Returning the assistant reply + any newly-created doc so the client can
-//     open the editor.
+// State machine per turn:
 //
-// The per-doc agent (packages/agent/chat.js + agent-chat.js) is still used
-// inside the editor and remains unchanged; this is a higher layer.
+//   1. Determine template (classifier if thread.template is null).
+//   2. If thread.pending_slot is set, coerce the user's message into that slot
+//      and clear pending_slot.
+//   3. Run all extractors over the concatenated user history to opportunistically
+//      auto-fill additional slots.
+//   4. If we already have a document in the thread OR the user is issuing an
+//      action ("send it"), skip gathering and hand off to the LLM in editing mode.
+//   5. Otherwise:
+//      - If all required slots are filled → LLM turn with template="drafting"
+//        system prompt that pushes it toward generate_document.
+//      - Elif clarify_count < MAX → LLM turn with tools = [ask_slot] only,
+//        strongly hinted to pick the next required slot.
+//      - Else (clarify_count >= MAX) → LLM turn with tools = [refuse_and_summarize].
+//
+// The tool loop after that is the same shape as the previous free-form agent
+// (LLM → tool_calls → executor → maybe loop); the difference is that ask_slot
+// is deterministic — the server, not the LLM, renders the question text.
 
 import { getProvider } from './providers/index.js';
 import { resolveProviderKey } from '../db/user-keys.js';
@@ -25,62 +33,154 @@ import { serviceClient } from '../db/supabase.js';
 import { totalDollarsForContract, totalDollarsForInvoice } from '../../netlify/functions/_shared/totals.js';
 import { defaultLocksFor } from '../templates/defaults.js';
 import { findOrCreateProjectForDocument } from '../db/projects.js';
+import {
+  slotDefsFor,
+  slotByKey,
+  slotsToOneshotPrompt,
+  autoFillSlots,
+  nextRequiredSlot,
+  missingRequiredSlots,
+  coerceSlotValue,
+} from './thread-slots.js';
 
 const MAX_CLARIFY_TURNS = 3;
+const MAX_ITERATIONS = 4;
 
-// ─── System prompt ────────────────────────────────────────
-function threadSystemPrompt({ stage, clarifyCount, memory, threadDocs }) {
+// ─── Template classifier (single-shot) ────────────────────
+
+async function classifyTemplate({ userMessage, threadTitle, provider }) {
+  // Quick keyword prescan — free.
+  const t = `${threadTitle || ''} ${userMessage || ''}`.toLowerCase();
+  if (/\binvoice\b|\bdeposit\s+invoice\b|\bmilestone\s+invoice\b|\bbill\b/.test(t) && !/\bcontract\b/.test(t)) {
+    return 'invoice';
+  }
+  if (/\bcontract\b|\breno(?:vation)?\b|\bnew\s+build\b|\baddition\b|\bkitchen\b|\bbath(?:room)?\b|\broof\b|\bsiding\b/.test(t) && !/\binvoice\b/.test(t)) {
+    return 'contract';
+  }
+  // Otherwise ask the LLM in a single tiny call.
+  try {
+    const { text } = await provider.generate({
+      system: 'You classify a user request as either "contract" or "invoice". Reply with ONLY the word "contract" or "invoice". No punctuation, no explanation.',
+      prompt: userMessage,
+      temperature: 0,
+      max_tokens: 8,
+    });
+    const v = (text || '').trim().toLowerCase().replace(/[^a-z]/g, '');
+    if (v === 'invoice') return 'invoice';
+    if (v === 'contract') return 'contract';
+  } catch { /* ignore */ }
+  return 'contract'; // safe default
+}
+
+// ─── System prompt (slot-aware) ───────────────────────────
+
+function threadSystemPrompt({ stage, template, gathered, missing, clarifyCount, memory, threadDocs, pendingSlot }) {
   const projects = memory.projects || [];
   const docs = memory.documents || [];
 
-  const projectLines = projects.slice(0, 15).map((p) =>
+  const projectLines = projects.slice(0, 10).map((p) =>
     `- ${p.name} · homeowner=${p.homeowner_name || '—'} · address=${p.property_address || '—'} · total=${((p.contract_total_cents || 0) / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' })} · status=${p.status}`
   );
-  const docLines = docs.slice(0, 20).map((d) =>
+  const docLines = docs.slice(0, 15).map((d) =>
     `- id=${d.id} · ${d.template} ${d.doc_number} · ${d.client_name || '—'} · $${((d.total_cents || 0) / 100).toFixed(0)} · ${d.status}${d.summary ? ` · summary="${d.summary}"` : ''}`
   );
   const threadDocLines = (threadDocs || []).map((d) =>
     `- id=${d.id} · ${d.template} ${d.doc_number} · status=${d.status} · $${((d.total_cents || 0) / 100).toFixed(0)}`
   );
 
+  const defs = template ? slotDefsFor(template) : [];
+  const filledLines = defs
+    .filter((d) => {
+      const v = gathered[d.key];
+      return v != null && v !== '' && !(Array.isArray(v) && v.length === 0);
+    })
+    .map((d) => {
+      let v = gathered[d.key];
+      if (d.type === 'money') v = `$${(v / 100).toLocaleString('en-US')}`;
+      if (Array.isArray(v)) v = v.join(', ');
+      return `- [FILLED] ${d.key} (${d.label}): ${v}`;
+    });
+  const missingLines = (missing || []).map((d) =>
+    `- [MISSING${d.required ? '/REQUIRED' : ''}] ${d.key} (${d.label})`
+  );
+
   const stageHint = {
-    gathering: `Your current job is to GATHER INFO before generating a document. Required fields for a contract: homeowner name+address, scope categories (any of Demolition & Foundation / Exteriors / Interiors / MEP), total budget or sqft, timeline (weeks to start + months to complete). For an invoice you need the linked contract (via lookup_document) and the milestone name. You may ask UP TO ${MAX_CLARIFY_TURNS} clarifying questions total across the whole thread — you have used ${clarifyCount} so far. Use ask_user for one focused question at a time. When you have enough, call generate_document. If after ${MAX_CLARIFY_TURNS} questions you still lack info, call refuse_and_summarize.`,
-    drafting: 'A document was just generated. Confirm what you created in one short sentence and offer next steps ("Want me to email it to the homeowner? Or make edits?"). Do not call generate_document again.',
-    editing: 'The document exists and the user wants edits or actions. Use send_to_client to email; use lookup_document when you need to compare or copy from another doc. Do NOT call ask_user unless the user is clearly ambiguous — this stage is action, not info-gathering.',
+    gathering: [
+      `Your current job is to GATHER the fields listed below before drafting the ${template || 'document'}.`,
+      `Constraint: call ONLY the ask_slot tool right now, and pass one of the MISSING/REQUIRED slot keys shown below.`,
+      `Do NOT compose your own question — the server will show the user the canonical question for that slot.`,
+      `You have asked ${clarifyCount} of ${MAX_CLARIFY_TURNS} allowed clarifying questions so far.`,
+    ].join('\n'),
+    ready_to_generate: [
+      `All required slots are filled. Your job now is to call generate_document to create the ${template}.`,
+      `Do NOT ask more questions. Do NOT call ask_slot. Do NOT restate the slots in prose.`,
+      `Call generate_document with no arguments (the server will use the gathered slots).`,
+    ].join('\n'),
+    refuse: [
+      `You have used all ${MAX_CLARIFY_TURNS} clarifying questions and the required slots below are still empty.`,
+      `Your only valid move is to call refuse_and_summarize with the list of missing slot keys.`,
+      `Do NOT call ask_slot again. Do NOT call generate_document.`,
+    ].join('\n'),
+    drafting: [
+      `A document was just generated. Confirm what you created in one short sentence and offer next steps ("Want me to email it to the homeowner? Or make edits?").`,
+      `Do NOT call generate_document again.`,
+    ].join('\n'),
+    editing: [
+      `The document exists and the user wants edits or actions. Use send_to_client to email; use lookup_document when you need to reference another doc.`,
+      `Do NOT call ask_slot — this stage is action, not info-gathering.`,
+    ].join('\n'),
     sending: 'A send is in progress. Confirm success briefly.',
     done:    'The job is complete. Answer questions but be concise.',
   }[stage] || '';
 
-  return [
+  const parts = [
     'You are Sunvic Contractors LLC\'s agentic assistant. You help a construction business owner (the user) prepare CONTRACTS and INVOICES for their homeowner clients through natural conversation.',
     '',
-    'The user is the CONTRACTOR, not the homeowner. Speak to them as "you"; call the homeowner by name (e.g. "the Nguyens").',
+    'The user is the CONTRACTOR, not the homeowner. Speak to them as "you"; call the homeowner by name.',
+    '',
+    `Current template: ${template || '(unknown)'}`,
     '',
     stageHint,
     '',
+  ];
+
+  if (template) {
+    parts.push('Slot checklist:');
+    if (filledLines.length) parts.push(...filledLines);
+    if (missingLines.length) parts.push(...missingLines);
+    if (!filledLines.length && !missingLines.length) parts.push('(no slots)');
+    parts.push('');
+  }
+
+  if (pendingSlot) {
+    parts.push(`(The user's last reply was in response to a request for slot "${pendingSlot}". If they answered, it has already been recorded.)`);
+    parts.push('');
+  }
+
+  parts.push(
     'Ground rules:',
     '- Prefer TOOLS over prose. When action is needed, call the tool; do not describe what you would do.',
-    '- Never invent a homeowner. If you find a matching project in memory, confirm it before reusing.',
-    '- Never invent legal text. Sunvic contract legal blocks are canonical and locked server-side.',
-    '- Money: New Jersey pricing — gut renos $200–300/sqft, second-story additions $250–500/sqft, kitchens $30–80k, baths $15–35k. NJ sales tax = 6.625%, materials-only for construction.',
-    '- Keep replies short. One or two sentences plus one tool call is ideal.',
+    '- Never invent a homeowner. If a project in memory matches, mention it once.',
+    '- Never invent legal text — Sunvic contract legal blocks are canonical and server-side.',
+    '- Money: NJ pricing — gut renos $200–300/sqft, kitchens $30–80k, baths $15–35k. NJ tax 6.625%, materials-only.',
+    '- Keep replies to one or two short sentences plus one tool call.',
     '',
     'Memory — recent projects for this user:',
     projectLines.length ? projectLines.join('\n') : '(no prior projects)',
     '',
-    'Memory — recent documents (with summaries; call lookup_document for full payloads):',
+    'Memory — recent documents:',
     docLines.length ? docLines.join('\n') : '(no prior documents)',
     '',
     'This thread already has these documents:',
     threadDocLines.length ? threadDocLines.join('\n') : '(none yet)',
-  ].join('\n');
+  );
+
+  return parts.join('\n');
 }
 
-// ─── Helpers ────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────
+
 function historyForLLM(messages) {
-  // messages are DB rows: { role, content, tool_calls, tool_call_id, meta, created_at }.
-  // Provider-neutral shape expected by getProvider(...).chat():
-  //   { role: 'user'|'assistant'|'tool'|'system', content, tool_calls?, tool_call_id? }
   return messages.map((m) => {
     const base = { role: m.role, content: m.content || '' };
     if (m.tool_calls) base.tool_calls = m.tool_calls;
@@ -90,7 +190,6 @@ function historyForLLM(messages) {
 }
 
 async function generateSummaryForDoc({ template, payload, providerId, model, userId }) {
-  // Best-effort — never fail the parent flow because of this.
   try {
     const apiKey = await resolveProviderKey(userId, providerId);
     if (!apiKey) return null;
@@ -100,9 +199,7 @@ async function generateSummaryForDoc({ template, payload, providerId, model, use
       : totalDollarsForInvoice(payload);
     const context = {
       template,
-      homeowner: template === 'contract'
-        ? payload.homeowner
-        : payload.bill_to,
+      homeowner: template === 'contract' ? payload.homeowner : payload.bill_to,
       total_dollars: total,
       scope_snippet: template === 'contract'
         ? (payload.agreement_summary?.scope_recap || '')
@@ -120,17 +217,93 @@ async function generateSummaryForDoc({ template, payload, providerId, model, use
   }
 }
 
-// ─── Tool executors — one entry per thread tool ───────────
-async function executeThreadTool({ call, thread, user, providerId, model, dispatch }) {
+// Best-effort: look up a doc for lookup_document by uuid, doc_number, or name.
+async function resolveDocRef(user, identifier) {
+  if (!identifier) return null;
+  const svc = serviceClient();
+  const idStr = String(identifier).trim();
+  // Try UUID
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idStr)) {
+    const { data } = await svc
+      .from('documents')
+      .select('id, template, doc_number, status, payload, total_cents, client_name, summary')
+      .eq('id', idStr)
+      .eq('created_by', user.id)
+      .maybeSingle();
+    if (data) return data;
+  }
+  // Try doc_number
+  if (/^(CTR|INV)-\d{4}-\d{4}$/i.test(idStr)) {
+    const { data } = await svc
+      .from('documents')
+      .select('id, template, doc_number, status, payload, total_cents, client_name, summary')
+      .eq('doc_number', idStr.toUpperCase())
+      .eq('created_by', user.id)
+      .maybeSingle();
+    if (data) return data;
+  }
+  // Homeowner name search (contract only makes sense to link an invoice)
+  const { data: hits } = await svc
+    .from('documents')
+    .select('id, template, doc_number, status, payload, total_cents, client_name, summary')
+    .eq('created_by', user.id)
+    .ilike('client_name', `%${idStr}%`)
+    .order('created_at', { ascending: false })
+    .limit(1);
+  return hits?.[0] || null;
+}
+
+// ─── Deterministic slot flow ──────────────────────────────
+
+// Try to write user's message into thread.pending_slot. Returns { key, value } if
+// successful, else { key, error }.
+function absorbPendingSlot(template, pendingSlotKey, userMessage) {
+  if (!pendingSlotKey) return null;
+  const def = slotByKey(template, pendingSlotKey);
+  if (!def) return null;
+
+  // For most slots, try the extractor first (which handles ambiguous free text),
+  // then fall back to raw coercion for the case where the user answered directly.
+  let extracted = null;
+  try { extracted = def.extract ? def.extract(userMessage) : null; } catch { extracted = null; }
+  if (extracted != null) {
+    const coerced = coerceSlotValue(def, extracted);
+    if (coerced.ok) return { key: def.key, value: coerced.value };
+  }
+  // Try direct coercion of the raw message.
+  const raw = String(userMessage || '').trim();
+  const direct = coerceSlotValue(def, raw);
+  if (direct.ok) return { key: def.key, value: direct.value };
+
+  return { key: def.key, error: direct.error || 'coerce_failed' };
+}
+
+// ─── Tool executors ───────────────────────────────────────
+
+async function executeThreadTool({ call, thread, user, providerId, model, dispatch, template, gatheredSlots }) {
   const name = call.name;
   const args = call.arguments || {};
 
-  if (name === 'ask_user') {
+  if (name === 'ask_slot') {
+    const slotKey = args.slot_key;
+    if (!slotKey || !template) {
+      return { applied: false, error: 'invalid_slot_ask', meta: { slot_key: slotKey } };
+    }
+    const def = slotByKey(template, slotKey);
+    if (!def) {
+      return { applied: false, error: 'unknown_slot', meta: { slot_key: slotKey } };
+    }
+    // Guard: don't re-ask a slot that's already filled.
+    const cur = gatheredSlots[slotKey];
+    if (cur != null && cur !== '' && !(Array.isArray(cur) && cur.length === 0)) {
+      return { applied: false, error: 'slot_already_filled', meta: { slot_key: slotKey } };
+    }
+    const question = def.hint ? `${def.question}\n\n${def.hint}` : def.question;
     return {
       applied: true,
-      user_facing: args.question,
-      meta: { hint: args.hint || null, tool: 'ask_user' },
-      stage_transition: null,
+      user_facing: question,
+      meta: { tool: 'ask_slot', slot_key: slotKey, slot_label: def.label },
+      pending_slot: slotKey,
     };
   }
 
@@ -142,39 +315,45 @@ async function executeThreadTool({ call, thread, user, providerId, model, dispat
   }
 
   if (name === 'lookup_document') {
-    const svc = serviceClient();
-    const { data, error } = await svc
-      .from('documents')
-      .select('id, template, doc_number, status, payload, total_cents, client_name, summary')
-      .eq('id', args.doc_id)
-      .eq('created_by', user.id)
-      .maybeSingle();
-    if (error || !data) return { applied: false, error: 'lookup_failed', meta: { doc_id: args.doc_id } };
-    return { applied: true, tool_result: data, meta: { tool: 'lookup_document', doc_id: args.doc_id } };
+    const doc = await resolveDocRef(user, args.identifier || args.doc_id);
+    if (!doc) return { applied: false, error: 'lookup_failed', meta: { identifier: args.identifier || args.doc_id } };
+    return { applied: true, tool_result: doc, meta: { tool: 'lookup_document', doc_id: doc.id } };
   }
 
   if (name === 'refuse_and_summarize') {
-    const missing = Array.isArray(args.missing_fields) ? args.missing_fields : [];
-    const list = missing.length ? missing.map((f) => `• ${f}`).join('\n') : '• (unspecified)';
+    const keys = Array.isArray(args.missing_slot_keys) ? args.missing_slot_keys : [];
+    const labels = keys.map((k) => {
+      const def = template ? slotByKey(template, k) : null;
+      return def ? def.label : k;
+    });
+    const list = labels.length ? labels.map((f) => `• ${f}`).join('\n') : '• (unspecified)';
     const message =
       `I still need a few more details before I can draft this cleanly:\n${list}\n\n` +
       `Want me to (a) make my best guess, (b) keep asking, or (c) fill these in yourself?`;
     return {
       applied: true,
       user_facing: message,
-      meta: { missing_fields: missing, tool: 'refuse_and_summarize' },
-      stage_transition: null, // stay in gathering; user must pick a path
+      meta: { missing_slot_keys: keys, tool: 'refuse_and_summarize' },
     };
   }
 
   if (name === 'generate_document') {
-    const { template, prompt } = args;
-    if (!template || !prompt) return { applied: false, error: 'missing_args' };
+    const effectiveTemplate = args.template || template;
+    if (!effectiveTemplate) return { applied: false, error: 'no_template' };
+
+    const slotsPrompt = slotsToOneshotPrompt(effectiveTemplate, gatheredSlots || {});
+    const extra = (args.extra_context || '').trim();
+    const prompt = [
+      `Prepare a ${effectiveTemplate} with the following user-provided fields:`,
+      slotsPrompt || '(none provided — use defaults)',
+      extra ? `\nAdditional context:\n${extra}` : '',
+    ].filter(Boolean).join('\n');
+
     let result;
     try {
       result = await generateOneshot({
         prompt,
-        template,
+        template: effectiveTemplate,
         providerId,
         model,
         userId: user.id,
@@ -184,41 +363,38 @@ async function executeThreadTool({ call, thread, user, providerId, model, dispat
     }
 
     const svc = serviceClient();
-    // Doc number: reuse the same counter approach as documents.js (next `${prefix}-${year}-${n}`).
     const year = new Date().getFullYear();
-    const prefix = template === 'contract' ? 'CTR' : 'INV';
+    const prefix = effectiveTemplate === 'contract' ? 'CTR' : 'INV';
     const { count } = await svc
       .from('documents')
       .select('id', { count: 'exact', head: true })
       .eq('created_by', user.id)
-      .eq('template', template);
+      .eq('template', effectiveTemplate);
     const docNumber = `${prefix}-${year}-${String((count || 0) + 1).padStart(4, '0')}`;
 
-    // Compute total_cents.
-    const totalDollars = template === 'contract'
+    const totalDollars = effectiveTemplate === 'contract'
       ? totalDollarsForContract(result.payload)
       : totalDollarsForInvoice(result.payload);
 
     const insertRow = {
       created_by: user.id,
-      template,
+      template: effectiveTemplate,
       doc_number: docNumber,
       status: 'draft',
       title:
-        template === 'contract'
+        effectiveTemplate === 'contract'
           ? `Contract — ${result.payload.homeowner?.name || 'Untitled'}`
           : `Invoice ${docNumber}`,
       client_name: result.client_name || null,
       client_email: result.client_email || null,
       total_cents: Math.round(totalDollars * 100),
       payload: result.payload,
-      locks: defaultLocksFor(template),
+      locks: defaultLocksFor(effectiveTemplate),
       thread_id: thread.id,
     };
 
-    // Project link (reuses iter-2 helper).
     try {
-      const project = await findOrCreateProjectForDocument(user.id, result.payload, template);
+      const project = await findOrCreateProjectForDocument(user.id, result.payload, effectiveTemplate);
       if (project?.id) {
         insertRow.project_id = project.id;
         if (thread.project_id !== project.id) {
@@ -227,9 +403,8 @@ async function executeThreadTool({ call, thread, user, providerId, model, dispat
       }
     } catch { /* non-fatal */ }
 
-    // Generate + store summary (best-effort).
     const summary = await generateSummaryForDoc({
-      template,
+      template: effectiveTemplate,
       payload: result.payload,
       providerId,
       model,
@@ -244,8 +419,7 @@ async function executeThreadTool({ call, thread, user, providerId, model, dispat
       .single();
     if (insErr) return { applied: false, error: 'insert_failed', detail: insErr.message };
 
-    // Refresh project.contract_total_cents on new contracts (mirrors documents.js).
-    if (template === 'contract' && inserted.project_id) {
+    if (effectiveTemplate === 'contract' && inserted.project_id) {
       await svc
         .from('projects')
         .update({ contract_total_cents: insertRow.total_cents })
@@ -255,22 +429,20 @@ async function executeThreadTool({ call, thread, user, providerId, model, dispat
 
     return {
       applied: true,
-      tool_result: { doc_id: inserted.id, doc_number: inserted.doc_number, template },
+      tool_result: { doc_id: inserted.id, doc_number: inserted.doc_number, template: effectiveTemplate },
       new_document: inserted,
       user_facing: null,
-      meta: { tool: 'generate_document', doc_id: inserted.id, template },
+      meta: { tool: 'generate_document', doc_id: inserted.id, template: effectiveTemplate },
       stage_transition: 'drafting',
     };
   }
 
   if (name === 'send_to_client') {
     if (!dispatch) return { applied: false, error: 'dispatch_unavailable' };
-    // Reuse the per-doc dispatcher (generate_pdf → email_document).
     const pdfRes = await dispatch({ name: 'generate_pdf', args: {}, docId: args.doc_id });
     if (pdfRes?.error) return { applied: false, error: 'pdf_failed', detail: pdfRes };
     const emailRes = await dispatch({ name: 'email_document', args: { to: args.to }, docId: args.doc_id });
     if (emailRes?.error) return { applied: false, error: 'email_failed', detail: emailRes };
-    // Flip doc status to 'sent'.
     const svc = serviceClient();
     await svc
       .from('documents')
@@ -288,19 +460,8 @@ async function executeThreadTool({ call, thread, user, providerId, model, dispat
   return { applied: false, error: `unknown_tool_${name}` };
 }
 
-// ─── Main entry ──────────────────────────────────────────
-/**
- * Run one turn of the thread agent.
- * @returns {Promise<{
- *   assistant_message: string,
- *   messages_persisted: number,
- *   applied_tool_calls: Array,
- *   refused: Array,
- *   iterations: number,
- *   new_documents: Array,
- *   thread: object,
- * }>}
- */
+// ─── Main entry ───────────────────────────────────────────
+
 export async function runThreadTurn({
   thread,
   messages,
@@ -330,13 +491,12 @@ export async function runThreadTurn({
     throw tag('get_provider', new Error(`Provider "${providerId}" does not support tools. Try openrouter or cohere.`));
   }
 
-  // Memory context.
   let memory;
   try {
     memory = await listUserMemory(user.id, { limit: 20 });
   } catch (e) { throw tag('list_memory', e); }
 
-  // Docs already in this thread (for the state hint).
+  // Doc records already tied to this thread (for the "editing" branch).
   let threadDocs = [];
   try {
     const svc = serviceClient();
@@ -349,32 +509,104 @@ export async function runThreadTurn({
     threadDocs = data || [];
   } catch { /* ignore */ }
 
-  // Compute effective stage — if the thread had a doc drafted but user is still chatting,
-  // treat it as editing so we don't try to re-generate.
-  let effectiveStage = thread.stage;
-  if (effectiveStage === 'gathering' && threadDocs.length > 0) effectiveStage = 'editing';
+  // ─── Step 1: template ────────────────────────────
+  let template = thread.template || null;
+  const threadPatchImmediate = {};
+  if (!template) {
+    try {
+      template = await classifyTemplate({
+        userMessage,
+        threadTitle: thread.title,
+        provider,
+      });
+    } catch (e) { throw tag('classify_template', e); }
+    threadPatchImmediate.template = template;
+  }
+
+  // ─── Step 2: absorb pending slot from previous ask_slot ─
+  const gathered = { ...(thread.gathered_slots || {}) };
+  const pendingSlot = thread.pending_slot || null;
+
+  let absorbed = null;
+  if (pendingSlot) {
+    absorbed = absorbPendingSlot(template, pendingSlot, userMessage);
+    if (absorbed?.value != null && !absorbed.error) {
+      gathered[absorbed.key] = absorbed.value;
+    }
+    threadPatchImmediate.pending_slot = null;
+  }
+
+  // ─── Step 3: opportunistic auto-fill from all user history ─
+  const userMessageTexts = [
+    ...messages.filter((m) => m.role === 'user').map((m) => m.content),
+    userMessage,
+  ];
+  const { patch: extractedPatch, newlyFilled } = autoFillSlots(template, gathered, userMessageTexts);
+  Object.assign(gathered, extractedPatch);
+  if (Object.keys(extractedPatch).length > 0 || absorbed?.value != null) {
+    threadPatchImmediate.gathered_slots = gathered;
+  }
+
+  // ─── Step 4: figure out stage for this turn ─────
+  const missingReq = missingRequiredSlots(template, gathered);
+  const hasDoc = threadDocs.length > 0;
+  const clarifyCount = thread.clarify_count || 0;
+
+  let effectiveStage;
+  let toolsSubset;
+  if (hasDoc) {
+    effectiveStage = 'editing';
+    toolsSubset = threadToolDefs().filter((t) =>
+      ['send_to_client', 'lookup_document', 'set_thread_title'].includes(t.name)
+    );
+  } else if (missingReq.length === 0) {
+    effectiveStage = 'ready_to_generate';
+    toolsSubset = threadToolDefs().filter((t) =>
+      ['generate_document', 'lookup_document', 'set_thread_title'].includes(t.name)
+    );
+  } else if (clarifyCount >= MAX_CLARIFY_TURNS) {
+    effectiveStage = 'refuse';
+    toolsSubset = threadToolDefs().filter((t) => t.name === 'refuse_and_summarize');
+  } else {
+    effectiveStage = 'gathering';
+    toolsSubset = threadToolDefs().filter((t) =>
+      ['ask_slot', 'set_thread_title', 'lookup_document'].includes(t.name)
+    );
+  }
+
+  const missingAll = template
+    ? slotDefsFor(template).filter((d) => {
+        const v = gathered[d.key];
+        return v == null || v === '' || (Array.isArray(v) && v.length === 0);
+      })
+    : [];
 
   const system = threadSystemPrompt({
     stage: effectiveStage,
-    clarifyCount: thread.clarify_count,
+    template,
+    gathered,
+    missing: missingAll,
+    clarifyCount,
     memory,
     threadDocs,
+    pendingSlot,
   });
 
-  const tools = threadToolDefs();
   const historyBase = historyForLLM(messages);
   const provMessages = [...historyBase, { role: 'user', content: userMessage }];
 
-  // Persistence buffer — everything we accumulate this turn is committed at the end.
+  // Persistence buffer for this turn.
   const toPersist = [{ role: 'user', content: userMessage, meta: {} }];
+  // If we absorbed a pending slot, record that as an internal system-note tool
+  // message so the UI can show "recorded X" if we want later.
   const appliedTools = [];
   const refusedTools = [];
   const newDocuments = [];
   let assistantReply = '';
   let stageTransition = null;
   let clarifyIncrement = 0;
+  let pendingSlotAfter = null;
   let iterations = 0;
-  const MAX_ITERATIONS = 4;
 
   while (iterations < MAX_ITERATIONS) {
     iterations++;
@@ -383,7 +615,7 @@ export async function runThreadTurn({
       ({ text, tool_calls } = await provider.chat({
         system,
         messages: provMessages,
-        tools,
+        tools: toolsSubset,
         temperature: 0.3,
         max_tokens: 1200,
       }));
@@ -396,7 +628,6 @@ export async function runThreadTurn({
       break;
     }
 
-    // Store the assistant's tool-call message.
     provMessages.push({ role: 'assistant', content: text || '', tool_calls });
     toPersist.push({ role: 'assistant', content: text || '', tool_calls, meta: {} });
 
@@ -411,6 +642,8 @@ export async function runThreadTurn({
         providerId,
         model,
         dispatch,
+        template,
+        gatheredSlots: gathered,
       });
 
       const toolPayload = {
@@ -435,8 +668,9 @@ export async function runThreadTurn({
       if (result.new_document) newDocuments.push(result.new_document);
       if (result.stage_transition) stageTransition = result.stage_transition;
       if (result.user_facing) userFacingMessage = result.user_facing;
+      if (result.pending_slot) pendingSlotAfter = result.pending_slot;
 
-      if (call.name === 'ask_user') {
+      if (call.name === 'ask_slot' && result.applied) {
         clarifyIncrement++;
         mustBreakAfterExec = true;
       }
@@ -445,8 +679,6 @@ export async function runThreadTurn({
       }
     }
 
-    // If the model called ask_user / refuse_and_summarize, we terminate this turn and
-    // the tool's `user_facing` message is what the user sees. No further LLM round trip.
     if (mustBreakAfterExec) {
       if (userFacingMessage) {
         assistantReply = userFacingMessage;
@@ -456,7 +688,6 @@ export async function runThreadTurn({
       }
       break;
     }
-    // Otherwise loop — model will see tool results and either call more tools or reply.
   }
 
   if (!assistantReply && iterations >= MAX_ITERATIONS) {
@@ -464,19 +695,19 @@ export async function runThreadTurn({
     toPersist.push({ role: 'assistant', content: assistantReply, meta: { synthetic: true, iteration_capped: true } });
   }
 
-  // Persist everything atomically-ish.
+  // Persist.
   let persisted;
   try {
     persisted = await appendMessages(thread.id, toPersist);
   } catch (e) { throw tag('append_messages', e); }
 
-  // Update thread state.
-  const patch = {};
-  const nextClarify = thread.clarify_count + clarifyIncrement;
-  if (clarifyIncrement > 0) patch.clarify_count = nextClarify;
+  // Compose thread patch.
+  const patch = { ...threadPatchImmediate };
+  if (clarifyIncrement > 0) patch.clarify_count = clarifyCount + clarifyIncrement;
+  if (pendingSlotAfter) patch.pending_slot = pendingSlotAfter;
   if (stageTransition) patch.stage = stageTransition;
-  // Auto-advance stage: if we generated a doc, go to editing after this turn (drafting is a transient marker).
   if (newDocuments.length > 0 && !patch.stage) patch.stage = 'editing';
+
   const nextThread = Object.keys(patch).length > 0
     ? await updateThread(thread.id, user.id, patch)
     : thread;
@@ -489,5 +720,12 @@ export async function runThreadTurn({
     iterations,
     new_documents: newDocuments,
     thread: nextThread,
+    slot_state: {
+      template,
+      gathered_slots: gathered,
+      pending_slot: pendingSlotAfter,
+      clarify_count: clarifyCount + clarifyIncrement,
+      newly_filled_from_extract: newlyFilled,
+    },
   };
 }

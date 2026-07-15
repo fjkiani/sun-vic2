@@ -1,59 +1,71 @@
-// Tools that are ONLY exposed inside a chat thread (as opposed to the per-doc
-// agent chat panel). These wrap the higher-level workflow verbs the thread agent
-// needs: ask a question, generate a doc, look up a prior doc, send to client.
+// Tools exposed inside a chat thread.
 //
-// Each entry declares:
-//   - name, description (for the LLM's tool catalog)
-//   - parameters JSON schema
+// Slot-driven design: the agent picks a `slot_key` from a fixed enum via
+// `ask_slot`, never composes free-form question text. The server renders the
+// canonical question from packages/agent/thread-slots.js.
 //
-// The actual execution happens in thread-agent.js because it needs access to
-// user + DB clients, whereas per-doc tools mutate a payload in place.
+// Actual execution lives in thread-agent.js.
+
+import { ALL_SLOT_KEYS } from './thread-slots.js';
 
 export function threadToolDefs() {
   return [
     {
-      name: 'ask_user',
+      name: 'ask_slot',
       description:
-        'Ask the homeowner-lookup user ONE clarifying question. Use this ONLY while gathering info before writing a document. The single question must target the most important missing info (homeowner name+address, scope categories, budget or sqft, or timeline).',
+        'Ask the user to fill exactly ONE named slot from the template checklist. ' +
+        'The server will render the canonical question for that slot — you only pick which slot to ask about. ' +
+        'Rules: (1) only ask for a slot that is still empty in gathered_slots (visible in the system prompt); ' +
+        '(2) pick the highest-priority still-empty REQUIRED slot; ' +
+        '(3) never compose your own question text — the server owns it; ' +
+        '(4) never bundle multiple slots into one turn.',
       parameters: {
         type: 'object',
         properties: {
-          question: { type: 'string', description: 'The single, specific question to ask.' },
-          hint: {
+          slot_key: {
             type: 'string',
-            description: 'Optional short hint or example to help the user answer (e.g. "e.g. 4-6 months").',
+            description: 'Exact slot key from the checklist (e.g. "homeowner.name").',
+            enum: ALL_SLOT_KEYS,
           },
         },
-        required: ['question'],
+        required: ['slot_key'],
       },
     },
     {
       name: 'generate_document',
       description:
-        'Create a new document (contract or invoice) from the info gathered so far. Only call after you have all required fields OR the user explicitly told you to guess. This is the write step — do not call it twice for the same document.',
+        'Create the document once all REQUIRED slots are filled. The server serializes gathered_slots into the oneshot prompt — you do not need to describe the slots in prose. Call this AT MOST ONCE per thread.',
       parameters: {
         type: 'object',
         properties: {
-          template: { type: 'string', enum: ['contract', 'invoice'] },
-          prompt: {
+          // Template is inferred from thread.template but allowed as an explicit override.
+          template: {
+            type: 'string',
+            enum: ['contract', 'invoice'],
+            description: 'Optional override. Defaults to thread.template.',
+          },
+          extra_context: {
             type: 'string',
             description:
-              'Full natural-language description of the job with EVERY known field (homeowner name+address+phone+email, scope categories with rough dollar breakdown, total budget, timeline). This is fed to the oneshot generator.',
+              'Optional free-text supplement — e.g. specific scope notes the user typed that don\'t map cleanly to a slot. Appended to the oneshot prompt after the structured slot list.',
           },
         },
-        required: ['template', 'prompt'],
+        required: [],
       },
     },
     {
       name: 'lookup_document',
       description:
-        'Pull the full payload of a prior document (same user only) so you can reference its totals, homeowner details, or scope when drafting a follow-up doc.',
+        'Pull the full payload of a prior document (same user only). Use when preparing an invoice to inherit totals/homeowner from a contract, or to reference prior context. `identifier` can be a doc UUID, a doc_number like "CTR-2026-0003", or a homeowner name — the server will pick the best match.',
       parameters: {
         type: 'object',
         properties: {
-          doc_id: { type: 'string' },
+          identifier: {
+            type: 'string',
+            description: 'UUID, doc_number, or homeowner name.',
+          },
         },
-        required: ['doc_id'],
+        required: ['identifier'],
       },
     },
     {
@@ -72,7 +84,7 @@ export function threadToolDefs() {
     {
       name: 'set_thread_title',
       description:
-        'Set a short human-readable title for this chat thread (e.g. "Nguyen kitchen reno — 665 Denver"). Call once early when you know what the job is about.',
+        'Set a short human-readable title for this chat thread (e.g. "Smith kitchen reno — 123 Oak"). Call once early when you know what the job is about.',
       parameters: {
         type: 'object',
         properties: {
@@ -84,18 +96,17 @@ export function threadToolDefs() {
     {
       name: 'refuse_and_summarize',
       description:
-        'Use this as the last resort ONLY when you have already asked 3 clarifying questions and still cannot generate the document. Lists exactly which fields you are missing and asks the user what to do next.',
+        'Use this ONLY when clarify_count has reached the max (3) and required slots are still empty. Lists exactly which slots are still missing and asks the user what to do next.',
       parameters: {
         type: 'object',
         properties: {
-          missing_fields: {
+          missing_slot_keys: {
             type: 'array',
-            items: { type: 'string' },
-            description:
-              'The specific fields you still need — e.g. ["homeowner name", "budget or sqft", "timeline"].',
+            items: { type: 'string', enum: ALL_SLOT_KEYS },
+            description: 'The specific slot keys that are still missing.',
           },
         },
-        required: ['missing_fields'],
+        required: ['missing_slot_keys'],
       },
     },
   ];

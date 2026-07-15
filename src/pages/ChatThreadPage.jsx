@@ -15,6 +15,27 @@ const STAGE_TONE = {
   done:      'bg-emerald-100 text-emerald-800',
 };
 
+// Server-side slot labels — kept in sync with packages/agent/thread-slots.js.
+const SLOT_LABELS = {
+  'homeowner.name': 'Homeowner name',
+  'homeowner.address': 'Property address',
+  'scope_categories': 'Scope of work',
+  'payment.total_cents': 'Budget total',
+  'timeline.start_date': 'Start date',
+  'agreement_summary.months_to_complete': 'Months to complete',
+  'agreement_summary.weeks_to_start': 'Weeks to start',
+  'homeowner.phone': 'Homeowner phone',
+  'homeowner.email': 'Homeowner email',
+  'payment.method': 'Payment method',
+  'linked_contract_id': 'Contract this invoice bills against',
+  'milestone_label': 'Milestone',
+  'invoice_date': 'Invoice date',
+  'due_date': 'Due date',
+  'bill_to.recipient_email': 'Client email',
+};
+
+function slotLabel(key) { return SLOT_LABELS[key] || key; }
+
 function fmtUSD(cents) {
   if (cents == null) return '';
   return (Number(cents) / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
@@ -70,7 +91,7 @@ function ToolCallChip({ name, args, docs }) {
       </div>
     );
   }
-  if (name === 'ask_user' || name === 'refuse_and_summarize') {
+  if (name === 'ask_user' || name === 'ask_slot' || name === 'refuse_and_summarize') {
     // These are rendered as the assistant's user-facing message; skip the chip.
     return null;
   }
@@ -219,7 +240,15 @@ export function ChatThreadPage() {
           <div className="font-semibold text-neutral-900 truncate text-sm md:text-base">{thread.title}</div>
         </div>
         {stageBadge}
-        {thread.clarify_count > 0 && thread.stage === 'gathering' && (
+        {thread.pending_slot && thread.stage === 'gathering' && (
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 truncate max-w-[50vw]">
+            asking: {slotLabel(thread.pending_slot)}
+            {typeof thread.clarify_count === 'number' && (
+              <span className="opacity-70 ml-1">({thread.clarify_count}/3)</span>
+            )}
+          </span>
+        )}
+        {!thread.pending_slot && thread.clarify_count > 0 && thread.stage === 'gathering' && (
           <span className="text-[10px] text-amber-700">
             {thread.clarify_count}/3
           </span>

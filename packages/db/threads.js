@@ -65,7 +65,7 @@ export async function createThread(userId, { title, projectId } = {}) {
 }
 
 export async function updateThread(threadId, userId, patch) {
-  const allowed = ['title', 'stage', 'clarify_count', 'project_id', 'last_message_at'];
+  const allowed = ['title', 'stage', 'clarify_count', 'project_id', 'last_message_at', 'template', 'gathered_slots', 'pending_slot'];
   const filtered = Object.fromEntries(
     Object.entries(patch || {}).filter(([k]) => allowed.includes(k))
   );
