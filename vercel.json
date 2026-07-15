@@ -6,9 +6,9 @@
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ],
   "functions": {
-    "api/documents/[id]/pdf.js":   { "maxDuration": 30, "memory": 1024 },
-    "api/documents/[id]/email.js": { "maxDuration": 20, "memory": 512 },
-    "api/agent/oneshot.js":        { "maxDuration": 60, "memory": 1024 },
-    "api/agent/chat.js":           { "maxDuration": 60, "memory": 1024 }
+    "api/documents/[[...path]].js": { "maxDuration": 30 },
+    "api/agent/oneshot.js":         { "maxDuration": 60 },
+    "api/agent/chat.js":            { "maxDuration": 60 },
+    "api/threads/[[...path]].js":   { "maxDuration": 60 }
   }
 }
