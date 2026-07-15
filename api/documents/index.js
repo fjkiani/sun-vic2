@@ -1,26 +1,19 @@
 // One-function dispatcher for all /api/documents/* endpoints.
-// Sub-handlers are LAZY-imported so the router's cold-start doesn't pay for
-// the PDF renderer / React / template graph on every request.
+// Uses eager static imports so esbuild bundles .jsx templates at build time
+// (Vercel's Node runtime does not have a runtime .jsx loader).
 
 import { adapt } from '../_lib/adapt.js';
+import { handler as listHandler }   from '../../netlify/functions/documents.js';
+import { handler as itemHandler }   from '../../netlify/functions/document.js';
+import { handler as pdfHandler }    from '../../netlify/functions/document-pdf.js';
+import { handler as emailHandler }  from '../../netlify/functions/document-email.js';
+import { handler as publicHandler } from '../../netlify/functions/document-public.js';
 
-// Cache adapters after first load to avoid re-importing on warm invocations.
-const cache = {};
-
-async function getAdapter(name) {
-  if (cache[name]) return cache[name];
-  let mod;
-  switch (name) {
-    case 'list':   mod = await import('../../netlify/functions/documents.js');       break;
-    case 'item':   mod = await import('../../netlify/functions/document.js');        break;
-    case 'pdf':    mod = await import('../../netlify/functions/document-pdf.js');    break;
-    case 'email':  mod = await import('../../netlify/functions/document-email.js');  break;
-    case 'public': mod = await import('../../netlify/functions/document-public.js'); break;
-    default: throw new Error(`unknown handler: ${name}`);
-  }
-  cache[name] = adapt(mod.handler);
-  return cache[name];
-}
+const listAdapter   = adapt(listHandler);
+const itemAdapter   = adapt(itemHandler);
+const pdfAdapter    = adapt(pdfHandler);
+const emailAdapter  = adapt(emailHandler);
+const publicAdapter = adapt(publicHandler);
 
 export default async function documentsRouter(req, res) {
   try {
@@ -31,10 +24,9 @@ export default async function documentsRouter(req, res) {
     if (parts.length === 2) {
       const [id, action] = parts;
       req.query = { ...(req.query || {}), id };
-      if (action === 'pdf'    || action === 'email' || action === 'public') {
-        const a = await getAdapter(action);
-        return a(req, res);
-      }
+      if (action === 'pdf')    return pdfAdapter(req, res);
+      if (action === 'email')  return emailAdapter(req, res);
+      if (action === 'public') return publicAdapter(req, res);
       res.status(404).setHeader('content-type', 'application/json');
       return res.send(JSON.stringify({ error: 'not_found', detail: `no route for /api/documents/${id}/${action}` }));
     }
@@ -42,14 +34,12 @@ export default async function documentsRouter(req, res) {
     // /api/documents/:id
     if (parts.length === 1) {
       req.query = { ...(req.query || {}), id: parts[0] };
-      const a = await getAdapter('item');
-      return a(req, res);
+      return itemAdapter(req, res);
     }
 
     // /api/documents (list/create)
     if (parts.length === 0) {
-      const a = await getAdapter('list');
-      return a(req, res);
+      return listAdapter(req, res);
     }
 
     res.status(404).setHeader('content-type', 'application/json');
