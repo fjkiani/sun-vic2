@@ -6,6 +6,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api.js';
+import { useModelChoice } from '../components/ModelPickerDropdown.jsx';
 
 const STAGE_TONE = {
   gathering: 'bg-amber-100 text-amber-800',
@@ -163,6 +164,7 @@ export function ChatThreadPage() {
   const [pendingDocs, setPendingDocs] = useState([]); // docs from the last turn response
   const scrollerRef = useRef(null);
   const openedInitialRef = useRef(false);
+  const [choice] = useModelChoice();
 
   const { data, isLoading } = useQuery({
     queryKey: ['thread', threadId],
@@ -172,7 +174,11 @@ export function ChatThreadPage() {
   const messages = data?.messages || [];
 
   const mutation = useMutation({
-    mutationFn: (body) => api.postThreadTurn(threadId, body),
+    mutationFn: (body) => api.postThreadTurn(threadId, {
+      ...body,
+      provider: body.provider || choice.provider,
+      model: body.model || choice.model,
+    }),
     onSuccess: (res) => {
       if (res?.new_documents?.length) setPendingDocs((p) => [...p, ...res.new_documents]);
       qc.invalidateQueries({ queryKey: ['thread', threadId] });
