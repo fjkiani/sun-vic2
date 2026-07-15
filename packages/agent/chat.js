@@ -48,7 +48,8 @@ export async function runChatTurn({
   docId,
   history,
   dispatch,
-, userId}) {
+  userId,
+}) {
   const apiKey = await resolveProviderKey(userId, providerId);
   if (!apiKey) throw new Error(`no_api_key_for_provider:${providerId}`);
   const provider = getProvider(providerId, { model, apiKey });

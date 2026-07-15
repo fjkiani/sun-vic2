@@ -1,7 +1,7 @@
 // Barrel — picks the right PDF component for a template.
 
-import { InvoicePDF } from './InvoicePDF.jsx';
-import { ContractPDF } from './ContractPDF.jsx';
+import { InvoicePDF } from './InvoicePDF.js';
+import { ContractPDF } from './ContractPDF.js';
 
 export { InvoicePDF, ContractPDF };
 

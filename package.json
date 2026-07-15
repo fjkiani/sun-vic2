@@ -6,10 +6,11 @@
   "scripts": {
     "dev": "netlify dev",
     "dev:vite": "vite",
-    "build": "vite build",
+    "build": "node scripts/build-pdf-templates.mjs && vite build",
     "preview": "vite preview",
     "smoke": "tsx scripts/smoke-test.mjs",
-    "lint": "eslint src netlify packages --ext .js,.jsx"
+    "lint": "eslint src netlify packages --ext .js,.jsx",
+    "build:pdf-templates": "node scripts/build-pdf-templates.mjs"
   },
   "dependencies": {
     "@react-pdf/renderer": "^3.4.4",
