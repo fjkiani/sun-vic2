@@ -310,17 +310,31 @@ export async function runThreadTurn({
   model,
   dispatch,
 }) {
-  if (!userMessage || !userMessage.trim()) throw new Error('empty_user_message');
+  const tag = (stage, err) => {
+    if (err && !err.threadStage) err.threadStage = stage;
+    return err;
+  };
+  if (!userMessage || !userMessage.trim()) throw tag('input', new Error('empty_user_message'));
 
-  const apiKey = await resolveProviderKey(user.id, providerId);
-  if (!apiKey) throw new Error(`no_api_key_for_provider:${providerId}`);
-  const provider = getProvider(providerId, { model, apiKey });
+  let apiKey;
+  try {
+    apiKey = await resolveProviderKey(user.id, providerId);
+  } catch (e) { throw tag('resolve_api_key', e); }
+  if (!apiKey) throw tag('resolve_api_key', new Error(`no_api_key_for_provider:${providerId}`));
+
+  let provider;
+  try {
+    provider = getProvider(providerId, { model, apiKey });
+  } catch (e) { throw tag('get_provider', e); }
   if (!provider.supportsTools()) {
-    throw new Error(`Provider "${providerId}" does not support tools. Try openrouter or cohere.`);
+    throw tag('get_provider', new Error(`Provider "${providerId}" does not support tools. Try openrouter or cohere.`));
   }
 
   // Memory context.
-  const memory = await listUserMemory(user.id, { limit: 20 });
+  let memory;
+  try {
+    memory = await listUserMemory(user.id, { limit: 20 });
+  } catch (e) { throw tag('list_memory', e); }
 
   // Docs already in this thread (for the state hint).
   let threadDocs = [];
@@ -364,13 +378,16 @@ export async function runThreadTurn({
 
   while (iterations < MAX_ITERATIONS) {
     iterations++;
-    const { text, tool_calls } = await provider.chat({
-      system,
-      messages: provMessages,
-      tools,
-      temperature: 0.3,
-      max_tokens: 1200,
-    });
+    let text, tool_calls;
+    try {
+      ({ text, tool_calls } = await provider.chat({
+        system,
+        messages: provMessages,
+        tools,
+        temperature: 0.3,
+        max_tokens: 1200,
+      }));
+    } catch (e) { throw tag(`llm_iter_${iterations}`, e); }
 
     if (!tool_calls?.length) {
       assistantReply = (text || '').trim();
@@ -448,7 +465,10 @@ export async function runThreadTurn({
   }
 
   // Persist everything atomically-ish.
-  const persisted = await appendMessages(thread.id, toPersist);
+  let persisted;
+  try {
+    persisted = await appendMessages(thread.id, toPersist);
+  } catch (e) { throw tag('append_messages', e); }
 
   // Update thread state.
   const patch = {};

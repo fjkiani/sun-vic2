@@ -243,11 +243,34 @@ export function ChatThreadPage() {
         {mutation.isPending && (
           <div className="text-sm text-neutral-400 italic">Agent is thinking…</div>
         )}
-        {error && (
-          <div className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded p-2">
-            {error.message}
-          </div>
-        )}
+        {error && (() => {
+          const detail = error?.data?.detail || error?.detail;
+          const pgCode = error?.data?.pgCode;
+          const stage = error?.data?.stage;
+          const detailStr = typeof detail === 'string' ? detail : JSON.stringify(detail || {});
+          return (
+            <div className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded p-2 space-y-1">
+              <div className="font-medium">{error.message || 'Something went wrong'}</div>
+              {stage && <div className="text-xs opacity-70">Stage: <code className="bg-rose-100 px-1 py-0.5 rounded">{stage}</code></div>}
+              {detail && (
+                <div className="text-xs opacity-80 break-words">Detail: <code className="bg-rose-100 px-1 py-0.5 rounded">{detailStr}</code></div>
+              )}
+              {pgCode && (
+                <div className="text-xs opacity-80">Postgres code: <code className="bg-rose-100 px-1 py-0.5 rounded">{pgCode}</code></div>
+              )}
+              {(pgCode === '42P01' || detailStr.toLowerCase().includes('does not exist')) && (
+                <div className="text-xs mt-1">
+                  Missing table. Confirm migrations 0002–0004 all ran in the same Supabase project as the API.
+                </div>
+              )}
+              {detailStr.toLowerCase().includes('no_api_key') && (
+                <div className="text-xs mt-1">
+                  Paste your OpenRouter (or Cohere) key on the <a href="/settings" className="underline">Settings</a> page.
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </div>
 
       {/* Composer */}

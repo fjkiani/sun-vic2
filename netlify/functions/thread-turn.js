@@ -89,6 +89,11 @@ export const handler = async (event) => {
       iterations: turn.iterations,
     });
   } catch (e) {
-    return json(500, { error: 'thread_turn_failed', detail: String(e?.message || e) });
+    console.error('[thread-turn.POST] failure:', e);
+    // Try to extract Postgres / provider-specific info.
+    const detail = e?.message || String(e);
+    const pgCode = e?.pgCode || e?.code;
+    const stage  = e?.threadStage || null;
+    return json(500, { error: 'thread_turn_failed', detail, pgCode, stage });
   }
 };
