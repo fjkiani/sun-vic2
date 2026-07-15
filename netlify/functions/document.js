@@ -131,6 +131,39 @@ export const handler = async (event) => {
         .eq('created_by', user.id);
     }
 
+    // ─── Proactive suggestion nudge ─────────────────────
+    // When a contract flips to `signed` OR an invoice flips to `paid`, and the doc
+    // belongs to a thread, append a canned assistant message so the user sees the
+    // suggested next step next time they open the thread.
+    // Best-effort — swallow errors, they must never break the PATCH.
+    try {
+      const prevStatus = doc.status;
+      const newStatus  = updated.status;
+      const changed    = prevStatus !== newStatus;
+      const isMilestone =
+        (updated.template === 'contract' && newStatus === 'signed') ||
+        (updated.template === 'invoice'  && newStatus === 'paid');
+      if (changed && isMilestone && updated.thread_id) {
+        const nudgeText = updated.template === 'contract'
+          ? `The contract **${updated.doc_number}** is now marked signed. Want me to generate the deposit invoice (~15% of the contract total) so you can send it to ${updated.client_name || 'the homeowner'}?`
+          : `Invoice **${updated.doc_number}** is marked paid — nice. Want me to draft the next progress invoice?`;
+        await svc.from('chat_messages').insert({
+          thread_id: updated.thread_id,
+          role: 'assistant',
+          content: nudgeText,
+          meta: { proactive: true, trigger: `${updated.template}_${newStatus}`, document_id: updated.id },
+        });
+        await svc
+          .from('chat_threads')
+          .update({ last_message_at: new Date().toISOString() })
+          .eq('id', updated.thread_id)
+          .eq('user_id', user.id);
+      }
+    } catch (nudgeErr) {
+      // Log to server log; do not fail the PATCH.
+      console.warn('[document.PATCH] proactive nudge failed:', nudgeErr?.message || nudgeErr);
+    }
+
     return json(200, { document: updated, skipped_locks: skippedLocks });
   }
 

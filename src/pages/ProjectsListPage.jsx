@@ -31,18 +31,18 @@ export function ProjectsListPage() {
     <div>
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h1 className="text-2xl font-bold text-neutral-900">Projects</h1>
-          <p className="text-sm text-neutral-500">One project per homeowner / property — see contracts, invoices, and money flow in one place.</p>
+          <h1 className="text-xl md:text-2xl font-bold text-neutral-900">Projects</h1>
+          <p className="hidden md:block text-sm text-neutral-500">One project per homeowner / property — see contracts, invoices, and money flow in one place.</p>
         </div>
       </div>
 
       {/* Filters */}
-      <div className="flex items-center gap-3 mb-4">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 mb-4">
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Search name, homeowner, or address…"
-          className="flex-1 max-w-md rounded-md border border-neutral-300 px-3 py-1.5 text-sm"
+          className="flex-1 sm:max-w-md rounded-md border border-neutral-300 px-3 py-1.5 text-sm"
         />
         <select
           value={statusFilter}

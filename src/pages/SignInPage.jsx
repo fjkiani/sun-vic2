@@ -17,7 +17,7 @@ export function SignInPage() {
       const fn = mode === 'signin' ? supabase.auth.signInWithPassword : supabase.auth.signUp;
       const { error: err } = await fn.call(supabase.auth, { email, password });
       if (err) throw err;
-      nav('/documents', { replace: true });
+      nav('/chat', { replace: true });
     } catch (e2) {
       setError(e2.message || String(e2));
     } finally { setLoading(false); }

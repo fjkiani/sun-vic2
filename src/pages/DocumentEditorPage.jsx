@@ -15,8 +15,6 @@ import { useDebouncedSave } from '../hooks/useDebouncedSave.js';
 function fmtUSD(cents) {
   return ((Number(cents) || 0) / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 }
-
-// Utility: set a value at a JSON dot-path on a copy of the object.
 function setPath(obj, path, value) {
   const parts = path.split('.');
   const out = JSON.parse(JSON.stringify(obj || {}));
@@ -30,7 +28,6 @@ function setPath(obj, path, value) {
   return out;
 }
 
-// Load/store column layout preferences from localStorage.
 const LAYOUT_KEY = 'sunvic.editor.layout.v2';
 function loadLayout() {
   try {
@@ -42,16 +39,25 @@ function loadLayout() {
 function saveLayout(layout) {
   try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout)); } catch {}
 }
-
 const DEFAULT_LAYOUT = {
-  leftCollapsed: false,
-  midCollapsed: false,
-  rightCollapsed: false,
-  leftBasis: 25,   // percent of container width
-  midBasis: 40,
-  rightBasis: 35,
-  scrollSync: true,
+  leftCollapsed: false, midCollapsed: false, rightCollapsed: false,
+  leftBasis: 25, midBasis: 40, rightBasis: 35, scrollSync: true,
 };
+
+// Detect mobile viewport via matchMedia so 3-col layout only runs on md+.
+function useIsMobile() {
+  const [mobile, setMobile] = useState(() =>
+    typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches
+  );
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const mm = window.matchMedia('(max-width: 767px)');
+    const onChange = (e) => setMobile(e.matches);
+    mm.addEventListener('change', onChange);
+    return () => mm.removeEventListener('change', onChange);
+  }, []);
+  return mobile;
+}
 
 export function DocumentEditorPage() {
   const { id } = useParams();
@@ -60,10 +66,15 @@ export function DocumentEditorPage() {
     queryFn: () => api.getDocument(id),
   });
 
+  const isMobile = useIsMobile();
+
   const [doc, setDoc] = useState(null);
-  const [tab, setTab] = useState('editor');
+  const [tab, setTab] = useState('editor'); // editor|legal|actions (inside form panel)
   const [emailTo, setEmailTo] = useState('');
   const [busyOp, setBusyOp] = useState(null);
+
+  // Which of the 4 columns is active on mobile: chat|form|mirror|pdf
+  const [mobilePane, setMobilePane] = useState('form');
 
   const [layout, setLayout] = useState(() => loadLayout() || DEFAULT_LAYOUT);
   const containerRef = useRef(null);
@@ -71,8 +82,6 @@ export function DocumentEditorPage() {
   const midScrollRef = useRef(null);
   const syncingRef = useRef(false);
 
-  // Refs used inside the debounced apiCall — they must always reflect the
-  // current doc, otherwise stale updated_at values trigger spurious 409s.
   const docIdRef = useRef(null);
   const updatedAtRef = useRef(null);
 
@@ -85,7 +94,6 @@ export function DocumentEditorPage() {
   }, [doc?.id, doc?.updated_at]);
   useEffect(() => { saveLayout(layout); }, [layout]);
 
-  // Debounced save with 409 conflict detection.
   const { queueSave, flushNow, saving, lastSaved, error: saveError, conflict, dismissConflict } = useDebouncedSave({
     apiCall: async (patch) => {
       const id = docIdRef.current;
@@ -102,7 +110,6 @@ export function DocumentEditorPage() {
     debounceMs: 500,
   });
 
-  // Flush pending saves on unmount / page unload.
   useEffect(() => {
     const onBeforeUnload = () => { flushNow().catch(() => {}); };
     window.addEventListener('beforeunload', onBeforeUnload);
@@ -112,9 +119,6 @@ export function DocumentEditorPage() {
     };
   }, [flushNow]);
 
-  // saveField: apply patch locally (optimistic), queue debounced PATCH.
-  // Use functional setState so rapid consecutive edits chain against the
-  // latest committed payload rather than a stale closure of doc.payload.
   const saveField = useCallback((pathValueMap) => {
     setDoc((d) => {
       if (!d) return d;
@@ -158,7 +162,6 @@ export function DocumentEditorPage() {
   }
   async function setStatus(status) {
     if (!doc) return;
-    // Flush pending saves first so If-Match is fresh.
     await flushNow();
     try {
       const opts = updatedAtRef.current ? { expectedUpdatedAt: updatedAtRef.current } : {};
@@ -168,13 +171,12 @@ export function DocumentEditorPage() {
     } catch (e) { alert(`Status change failed: ${e.message || e}`); }
   }
 
-  // ─── Scroll sync (editor form ↔ mirror) ─────────────────────
+  // Scroll sync (desktop only)
   useEffect(() => {
-    if (!layout.scrollSync) return;
+    if (isMobile || !layout.scrollSync) return;
     const left = leftScrollRef.current;
     const mid = midScrollRef.current;
     if (!left || !mid) return;
-
     const sync = (source, target) => {
       if (syncingRef.current) return;
       syncingRef.current = true;
@@ -183,21 +185,18 @@ export function DocumentEditorPage() {
       if (sMax <= 0 || tMax <= 0) { syncingRef.current = false; return; }
       const ratio = source.scrollTop / sMax;
       target.scrollTop = ratio * tMax;
-      // release lock in next frame so we don't ping-pong.
       requestAnimationFrame(() => { syncingRef.current = false; });
     };
-
-    const onLeftScroll = () => sync(left, mid);
-    const onMidScroll = () => sync(mid, left);
-    left.addEventListener('scroll', onLeftScroll, { passive: true });
-    mid.addEventListener('scroll', onMidScroll, { passive: true });
+    const onLeft = () => sync(left, mid);
+    const onMid = () => sync(mid, left);
+    left.addEventListener('scroll', onLeft, { passive: true });
+    mid.addEventListener('scroll', onMid, { passive: true });
     return () => {
-      left.removeEventListener('scroll', onLeftScroll);
-      mid.removeEventListener('scroll', onMidScroll);
+      left.removeEventListener('scroll', onLeft);
+      mid.removeEventListener('scroll', onMid);
     };
-  }, [layout.scrollSync, layout.leftCollapsed, layout.midCollapsed]);
+  }, [isMobile, layout.scrollSync, layout.leftCollapsed, layout.midCollapsed]);
 
-  // Column resize handlers.
   const handleResize = useCallback((which, dx) => {
     if (!containerRef.current) return;
     const totalPx = containerRef.current.clientWidth;
@@ -222,7 +221,170 @@ export function DocumentEditorPage() {
 
   const total = doc.total_cents;
 
-  // Column widths — collapsed columns get a fixed 40px sliver.
+  // ─── Shared sub-panels (used both mobile and desktop) ────────
+  const formPanel = (
+    <>
+      {tab === 'editor' && (doc.template === 'contract'
+        ? <ContractFormEditor doc={doc} onSave={saveField} onToggleLock={toggleLock} />
+        : <InvoiceFormEditor doc={doc} onSave={saveField} onToggleLock={toggleLock} />)}
+      {tab === 'legal' && <LegalEditor doc={doc} onSave={saveField} onToggleLock={toggleLock} />}
+      {tab === 'actions' && (
+        <div className="space-y-3 text-xs">
+          <div>
+            <div className="text-xs text-neutral-500 uppercase font-semibold mb-1">Status</div>
+            <div className="flex flex-wrap gap-1">
+              {['draft','sent','signed','paid','overdue','void'].map((s) => (
+                <button key={s} onClick={() => setStatus(s)}
+                  className={`text-xs px-2 py-1 rounded border ${doc.status === s ? 'bg-sunvic-500 text-white border-sunvic-500' : 'bg-white border-neutral-300 text-neutral-700 hover:bg-neutral-50'}`}>
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <div className="text-xs text-neutral-500 uppercase font-semibold mb-1">Generate PDF</div>
+            <button onClick={runGeneratePdf} disabled={busyOp === 'pdf'}
+              className="w-full py-2 rounded-md bg-sunvic-500 hover:bg-sunvic-600 text-white text-sm font-semibold disabled:opacity-60">
+              {busyOp === 'pdf' ? 'Generating…' : 'Generate & download PDF'}
+            </button>
+          </div>
+          <div>
+            <div className="text-xs text-neutral-500 uppercase font-semibold mb-1">Email to</div>
+            <div className="flex gap-2">
+              <input type="email" placeholder={doc.client_email || 'client@example.com'} value={emailTo} onChange={(e) => setEmailTo(e.target.value)}
+                className="flex-1 rounded-md border border-neutral-300 px-2 py-1.5 text-sm" />
+              <button onClick={runEmail} disabled={busyOp === 'email' || !emailTo.trim()}
+                className="px-3 py-1.5 rounded-md bg-neutral-900 text-white text-sm disabled:opacity-60">
+                Send
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+  const formTabs = (
+    <div className="flex gap-0.5 text-[10px]">
+      {['editor', 'legal', 'actions'].map((t) => (
+        <button key={t} onClick={() => setTab(t)}
+          className={`px-1.5 py-0.5 rounded ${tab === t ? 'bg-sunvic-500 text-white' : 'text-neutral-500 hover:bg-neutral-100'}`}>
+          {t.toUpperCase()}
+        </button>
+      ))}
+    </div>
+  );
+  const mirrorPanel = (
+    <DocumentMirror
+      ref={midScrollRef}
+      template={doc.template}
+      payload={doc.payload}
+      onSave={saveField}
+      locks={doc.locks || {}}
+      onToggleLock={toggleLock}
+      docNumber={doc.doc_number}
+    />
+  );
+  const pdfPanel = <PDFPreview template={doc.template} payload={doc.payload} docNumber={doc.doc_number} />;
+
+  const statusBar = (
+    <div className="flex-shrink-0 flex items-center justify-between px-3 py-2 bg-white border border-neutral-200 rounded-t-xl gap-2">
+      <div className="flex items-center gap-2 md:gap-3 min-w-0 flex-1">
+        <div className="font-mono text-sunvic-600 font-bold text-sm md:text-base truncate">{doc.doc_number}</div>
+        <div className="text-xs text-neutral-500 capitalize hidden sm:block">{doc.template} · {doc.status}</div>
+        {doc.project_id && (
+          <Link to={`/projects/${doc.project_id}`} className="text-xs text-sunvic-700 hover:underline hidden md:inline">
+            → Project
+          </Link>
+        )}
+        {doc.thread_id && (
+          <Link to={`/chat/${doc.thread_id}`} className="text-xs text-sunvic-700 hover:underline hidden md:inline">
+            → Chat
+          </Link>
+        )}
+      </div>
+      <div className="flex items-center gap-2 md:gap-3 flex-shrink-0">
+        {/* Scroll-sync toggle only on desktop */}
+        <label className="hidden md:flex items-center gap-1 text-xs text-neutral-600 cursor-pointer" title="Sync scroll between form editor and mirror">
+          <input type="checkbox" checked={layout.scrollSync}
+            onChange={(e) => setLayout((l) => ({ ...l, scrollSync: e.target.checked }))} />
+          Scroll sync
+        </label>
+        <div className="text-[10px] md:text-xs text-neutral-500 min-w-[80px] md:min-w-[120px] text-right">
+          {saveError && !conflict ? <span className="text-red-600">Save failed</span>
+            : conflict ? <span className="text-amber-600">Conflict</span>
+            : saving ? 'Saving…'
+            : lastSaved ? `Saved ${lastSaved.toLocaleTimeString()}`
+            : 'Auto-save on'}
+        </div>
+        <div className="text-right">
+          <div className="text-[10px] text-neutral-500 uppercase hidden sm:block">Total</div>
+          <div className="font-mono font-bold text-sm">{fmtUSD(total)}</div>
+        </div>
+      </div>
+    </div>
+  );
+
+  const conflictBanner = conflict && (
+    <div className="flex-shrink-0 bg-amber-50 border-x border-b border-amber-300 px-3 py-2 text-xs text-amber-800 flex items-center justify-between gap-2">
+      <span className="flex-1">Another edit came in from a different tab. Reload to see the latest.</span>
+      <div className="flex gap-2 flex-shrink-0">
+        <button onClick={() => refetch()} className="px-2 py-1 rounded bg-amber-500 text-white text-xs font-semibold">Reload</button>
+        <button onClick={dismissConflict} className="px-2 py-1 rounded border border-amber-400 text-amber-800 text-xs">Dismiss</button>
+      </div>
+    </div>
+  );
+
+  // ─── Mobile layout (< md) ─────────────────────────────
+  if (isMobile) {
+    return (
+      <div className="flex flex-col h-[calc(100vh-6rem)]">
+        {statusBar}
+        {conflictBanner}
+
+        <div className="flex-1 min-h-0 overflow-hidden border-x border-neutral-200 bg-white">
+          {mobilePane === 'form' && (
+            <div className="h-full flex flex-col">
+              <div className="px-3 py-2 border-b border-neutral-200 flex items-center justify-between bg-neutral-50">
+                <div className="text-xs font-semibold text-neutral-600">Form editor</div>
+                {formTabs}
+              </div>
+              <div className="flex-1 overflow-y-auto p-3">{formPanel}</div>
+            </div>
+          )}
+          {mobilePane === 'mirror' && (
+            <div className="h-full overflow-hidden">{mirrorPanel}</div>
+          )}
+          {mobilePane === 'pdf' && (
+            <div className="h-full bg-neutral-800">{pdfPanel}</div>
+          )}
+          {mobilePane === 'chat' && (
+            <div className="h-full">
+              <AgentChatPanel document={doc} onDocumentUpdate={(d) => setDoc((c) => c ? { ...c, ...d } : d)} />
+            </div>
+          )}
+        </div>
+
+        {/* Bottom tab bar */}
+        <div className="flex-shrink-0 flex border-x border-b border-neutral-200 rounded-b-xl bg-white">
+          {[
+            ['form', 'Form'],
+            ['mirror', 'Preview'],
+            ['pdf', 'PDF'],
+            ['chat', 'Chat'],
+          ].map(([id, label]) => (
+            <button key={id} onClick={() => setMobilePane(id)}
+              className={`flex-1 py-2 text-xs font-semibold ${
+                mobilePane === id ? 'bg-sunvic-500 text-white' : 'text-neutral-600'
+              }`}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // ─── Desktop layout (md+) ─────────────────────────────
   const leftPct  = layout.leftCollapsed  ? 0 : layout.leftBasis;
   const midPct   = layout.midCollapsed   ? 0 : layout.midBasis;
   const rightPct = layout.rightCollapsed ? 0 : layout.rightBasis;
@@ -233,53 +395,10 @@ export function DocumentEditorPage() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-8rem)]">
-      {/* Top status bar */}
-      <div className="flex-shrink-0 flex items-center justify-between px-3 py-2 bg-white border border-neutral-200 rounded-t-xl">
-        <div className="flex items-center gap-3">
-          <div className="font-mono text-sunvic-600 font-bold">{doc.doc_number}</div>
-          <div className="text-xs text-neutral-500 capitalize">{doc.template} · {doc.status}</div>
-          {doc.project_id && (
-            <Link to={`/projects/${doc.project_id}`} className="text-xs text-sunvic-700 hover:underline">
-              → Project dashboard
-            </Link>
-          )}
-        </div>
-        <div className="flex items-center gap-3">
-          <label className="flex items-center gap-1 text-xs text-neutral-600 cursor-pointer" title="Sync scroll between form editor and mirror">
-            <input
-              type="checkbox"
-              checked={layout.scrollSync}
-              onChange={(e) => setLayout((l) => ({ ...l, scrollSync: e.target.checked }))}
-            />
-            Scroll sync
-          </label>
-          <div className="text-xs text-neutral-500 min-w-[120px] text-right">
-            {saveError && !conflict ? <span className="text-red-600">Save failed</span>
-              : conflict ? <span className="text-amber-600">Conflict — reload</span>
-              : saving ? 'Saving…'
-              : lastSaved ? `Saved ${lastSaved.toLocaleTimeString()}`
-              : 'Auto-save on change'}
-          </div>
-          <div className="text-right">
-            <div className="text-[10px] text-neutral-500 uppercase">Total</div>
-            <div className="font-mono font-bold text-sm">{fmtUSD(total)}</div>
-          </div>
-        </div>
-      </div>
+      {statusBar}
+      {conflictBanner}
 
-      {conflict && (
-        <div className="flex-shrink-0 bg-amber-50 border-x border-b border-amber-300 px-3 py-2 text-xs text-amber-800 flex items-center justify-between">
-          <span>Another edit came in from a different tab. Reload to see the latest version and merge your changes manually.</span>
-          <div className="flex gap-2">
-            <button onClick={() => refetch()} className="px-2 py-1 rounded bg-amber-500 text-white text-xs font-semibold">Reload</button>
-            <button onClick={dismissConflict} className="px-2 py-1 rounded border border-amber-400 text-amber-800 text-xs">Dismiss</button>
-          </div>
-        </div>
-      )}
-
-      {/* 3-column body */}
       <div ref={containerRef} className="flex-1 flex overflow-hidden border-x border-b border-neutral-200 rounded-b-xl bg-neutral-50 min-h-0">
-        {/* LEFT — form editor */}
         <div style={leftStyle} className="flex flex-col bg-white overflow-hidden">
           <ColumnHeader
             title="Form editor"
@@ -287,66 +406,17 @@ export function DocumentEditorPage() {
             collapsed={layout.leftCollapsed}
             onToggleCollapse={() => setLayout((l) => ({ ...l, leftCollapsed: !l.leftCollapsed }))}
           >
-            {!layout.leftCollapsed && (
-              <div className="flex gap-0.5 text-[10px]">
-                {['editor', 'legal', 'actions'].map((t) => (
-                  <button
-                    key={t}
-                    onClick={() => setTab(t)}
-                    className={`px-1.5 py-0.5 rounded ${tab === t ? 'bg-sunvic-500 text-white' : 'text-neutral-500 hover:bg-neutral-100'}`}
-                  >
-                    {t.toUpperCase()}
-                  </button>
-                ))}
-              </div>
-            )}
+            {!layout.leftCollapsed && formTabs}
           </ColumnHeader>
           {!layout.leftCollapsed && (
             <div ref={leftScrollRef} className="flex-1 overflow-y-auto p-3 space-y-3">
-              {tab === 'editor' && (doc.template === 'contract'
-                ? <ContractFormEditor doc={doc} onSave={saveField} onToggleLock={toggleLock} />
-                : <InvoiceFormEditor doc={doc} onSave={saveField} onToggleLock={toggleLock} />)}
-              {tab === 'legal' && <LegalEditor doc={doc} onSave={saveField} onToggleLock={toggleLock} />}
-              {tab === 'actions' && (
-                <div className="space-y-3 text-xs">
-                  <div>
-                    <div className="text-xs text-neutral-500 uppercase font-semibold mb-1">Status</div>
-                    <div className="flex flex-wrap gap-1">
-                      {['draft','sent','signed','paid','overdue','void'].map((s) => (
-                        <button key={s} onClick={() => setStatus(s)}
-                          className={`text-xs px-2 py-1 rounded border ${doc.status === s ? 'bg-sunvic-500 text-white border-sunvic-500' : 'bg-white border-neutral-300 text-neutral-700 hover:bg-neutral-50'}`}>
-                          {s}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-neutral-500 uppercase font-semibold mb-1">Generate PDF</div>
-                    <button onClick={runGeneratePdf} disabled={busyOp === 'pdf'}
-                      className="w-full py-2 rounded-md bg-sunvic-500 hover:bg-sunvic-600 text-white text-sm font-semibold disabled:opacity-60">
-                      {busyOp === 'pdf' ? 'Generating…' : 'Generate & download PDF'}
-                    </button>
-                  </div>
-                  <div>
-                    <div className="text-xs text-neutral-500 uppercase font-semibold mb-1">Email to</div>
-                    <div className="flex gap-2">
-                      <input type="email" placeholder={doc.client_email || 'client@example.com'} value={emailTo} onChange={(e) => setEmailTo(e.target.value)}
-                        className="flex-1 rounded-md border border-neutral-300 px-2 py-1.5 text-sm" />
-                      <button onClick={runEmail} disabled={busyOp === 'email' || !emailTo.trim()}
-                        className="px-3 py-1.5 rounded-md bg-neutral-900 text-white text-sm disabled:opacity-60">
-                        Send
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
+              {formPanel}
             </div>
           )}
         </div>
 
         <ColumnResizer onResize={(dx) => handleResize('left-mid', dx)} />
 
-        {/* MIDDLE — HTML mirror */}
         <div style={midStyle} className="flex flex-col bg-neutral-100 overflow-hidden">
           <ColumnHeader
             title="Live mirror"
@@ -355,23 +425,12 @@ export function DocumentEditorPage() {
             onToggleCollapse={() => setLayout((l) => ({ ...l, midCollapsed: !l.midCollapsed }))}
           />
           {!layout.midCollapsed && (
-            <div className="flex-1 min-h-0 overflow-hidden">
-              <DocumentMirror
-                ref={midScrollRef}
-                template={doc.template}
-                payload={doc.payload}
-                onSave={saveField}
-                locks={doc.locks || {}}
-                onToggleLock={toggleLock}
-                docNumber={doc.doc_number}
-              />
-            </div>
+            <div className="flex-1 min-h-0 overflow-hidden">{mirrorPanel}</div>
           )}
         </div>
 
         <ColumnResizer onResize={(dx) => handleResize('mid-right', dx)} />
 
-        {/* RIGHT — PDF preview */}
         <div style={rightStyle} className="flex flex-col bg-neutral-800 overflow-hidden">
           <ColumnHeader
             title="PDF preview"
@@ -380,14 +439,11 @@ export function DocumentEditorPage() {
             onToggleCollapse={() => setLayout((l) => ({ ...l, rightCollapsed: !l.rightCollapsed }))}
           />
           {!layout.rightCollapsed && (
-            <div className="flex-1 min-h-0">
-              <PDFPreview template={doc.template} payload={doc.payload} docNumber={doc.doc_number} />
-            </div>
+            <div className="flex-1 min-h-0">{pdfPanel}</div>
           )}
         </div>
       </div>
 
-      {/* Agent panel: floating, toggleable */}
       <AgentChatPanel document={doc} onDocumentUpdate={(d) => setDoc((c) => c ? { ...c, ...d } : d)} floating />
     </div>
   );

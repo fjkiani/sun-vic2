@@ -68,4 +68,15 @@ export const api = {
   createProject:     (body) => request('POST', '/api/projects', body),
   updateProject:     (id, body) => request('PATCH', `/api/projects/${id}`, body),
   getProjectSummary: (id) => request('GET', `/api/projects/${id}/summary`),
+
+  // Chat threads (agentic surface)
+  listThreads:   (params = {}) => {
+    const qs = new URLSearchParams(params).toString();
+    return request('GET', `/api/threads${qs ? '?' + qs : ''}`);
+  },
+  getThread:     (id) => request('GET', `/api/threads/${id}`),
+  createThread:  (body = {}) => request('POST', '/api/threads', body),
+  updateThread:  (id, body) => request('PATCH', `/api/threads/${id}`, body),
+  deleteThread:  (id) => request('DELETE', `/api/threads/${id}`),
+  postThreadTurn:(id, body) => request('POST', `/api/threads/${id}/turn`, body),
 };

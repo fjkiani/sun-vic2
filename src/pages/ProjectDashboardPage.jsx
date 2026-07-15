@@ -74,14 +74,14 @@ export function ProjectDashboardPage() {
   return (
     <div className="space-y-4">
       {/* Header row */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Link to="/projects" className="text-xs text-neutral-500 hover:text-neutral-800">← Projects</Link>
-          <div className="text-2xl font-bold text-neutral-900">{localProject.name}</div>
+      <div className="flex items-start md:items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-3 min-w-0">
+          <Link to="/projects" className="text-xs text-neutral-500 hover:text-neutral-800 flex-shrink-0">← Projects</Link>
+          <div className="text-lg md:text-2xl font-bold text-neutral-900 truncate">{localProject.name}</div>
         </div>
-        <div className="flex items-center gap-3 text-xs">
+        <div className="flex items-center gap-2 md:gap-3 text-xs flex-wrap">
           {saving && <span className="text-neutral-500">Saving…</span>}
-          {saveError && <span className="text-red-600">Save failed: {saveError.message}</span>}
+          {saveError && <span className="text-red-600 text-[10px] md:text-xs">Save failed</span>}
           <Link to="/documents/new" className="px-3 py-1.5 rounded bg-sunvic-500 hover:bg-sunvic-600 text-white text-xs font-semibold">
             + New Document
           </Link>

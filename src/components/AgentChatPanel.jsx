@@ -98,11 +98,13 @@ export function AgentChatPanel({ document, onDocumentUpdate, floating = false })
   );
 
   if (!floating) return panelContent;
+  // Floating mode is desktop-only — hide the floating bubble on mobile since the
+  // mobile editor exposes Chat as a first-class bottom-tab pane.
   if (!open) {
     return (
       <button
         onClick={() => setOpen(true)}
-        className="fixed bottom-4 right-4 z-40 rounded-full bg-sunvic-500 hover:bg-sunvic-600 text-white w-14 h-14 shadow-lg flex items-center justify-center text-2xl"
+        className="hidden md:flex fixed bottom-4 right-4 z-40 rounded-full bg-sunvic-500 hover:bg-sunvic-600 text-white w-14 h-14 shadow-lg items-center justify-center text-2xl"
         aria-label="Open agent chat"
       >
         💬
@@ -110,7 +112,7 @@ export function AgentChatPanel({ document, onDocumentUpdate, floating = false })
     );
   }
   return (
-    <div className="fixed bottom-4 right-4 z-40 w-96 h-[600px] max-h-[85vh]">
+    <div className="hidden md:block fixed bottom-4 right-4 z-40 w-96 h-[600px] max-h-[85vh]">
       {panelContent}
     </div>
   );

@@ -11,6 +11,8 @@ import { SignInPage } from './pages/SignInPage.jsx';
 import SettingsPage from './pages/SettingsPage.jsx';
 import { ProjectsListPage } from './pages/ProjectsListPage.jsx';
 import { ProjectDashboardPage } from './pages/ProjectDashboardPage.jsx';
+import { ChatHomePage } from './pages/ChatHomePage.jsx';
+import { ChatThreadPage } from './pages/ChatThreadPage.jsx';
 import { useSession } from './lib/hooks.js';
 
 const qc = new QueryClient({ defaultOptions: { queries: { staleTime: 30_000 } } });
@@ -29,7 +31,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(
         <Routes>
           <Route path="/sign-in" element={<SignInPage />} />
           <Route path="/" element={<Guarded><AppShell /></Guarded>}>
-            <Route index element={<Navigate to="/documents" replace />} />
+            <Route index element={<Navigate to="/chat" replace />} />
+            <Route path="chat" element={<ChatHomePage />} />
+            <Route path="chat/:threadId" element={<ChatThreadPage />} />
             <Route path="documents" element={<DocumentsListPage />} />
             <Route path="documents/new" element={<NewDocumentPage />} />
             <Route path="documents/:id" element={<DocumentEditorPage />} />
