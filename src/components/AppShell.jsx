@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { supabase } from '../lib/supabase.js';
+import { supabase, MOCK_AUTH } from '../lib/supabase.js';
 import { ModelPickerDropdown } from './ModelPickerDropdown.jsx';
 
 // Mobile-first shell. Below `md` the header collapses to a hamburger; nav links,
@@ -14,6 +14,7 @@ export function AppShell() {
   useEffect(() => { setDrawerOpen(false); }, [loc.pathname]);
 
   async function signOut() {
+    if (MOCK_AUTH) { nav('/chat', { replace: true }); return; } // no-op under mock auth
     await supabase.auth.signOut();
     nav('/sign-in', { replace: true });
   }
@@ -26,7 +27,7 @@ export function AppShell() {
       <header className="bg-white border-b border-neutral-200 shadow-sm sticky top-0 z-30">
         <div className="max-w-7xl mx-auto px-3 md:px-4 py-2.5 md:py-3 flex items-center justify-between gap-2">
           {/* Left: logo */}
-          <NavLink to="/chat" className="flex items-center gap-2 flex-shrink-0">
+          <NavLink to="/chat" className="flex items-center gap-2 flex-shrink-0 min-h-[44px]">
             <div className="w-9 h-9 rounded-lg bg-sunvic-500 text-white grid place-items-center font-bold">S</div>
             <div className="hidden sm:block">
               <div className="text-base md:text-lg font-bold text-neutral-900 leading-tight">Sunvic</div>
@@ -47,7 +48,7 @@ export function AppShell() {
           {/* Mobile hamburger (< md) */}
           <button
             onClick={() => setDrawerOpen(true)}
-            className="md:hidden p-2 -mr-1 rounded hover:bg-neutral-100"
+            className="md:hidden grid place-items-center min-w-[44px] min-h-[44px] -mr-1 rounded hover:bg-neutral-100"
             aria-label="Open menu"
           >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -87,7 +88,7 @@ export function AppShell() {
               <ModelPickerDropdown />
               <button
                 onClick={signOut}
-                className="w-full text-sm text-left text-neutral-600 hover:text-neutral-900 py-2"
+                className="w-full text-sm text-left text-neutral-600 hover:text-neutral-900 min-h-[44px] py-2"
               >
                 Sign out
               </button>
@@ -96,7 +97,7 @@ export function AppShell() {
         </div>
       )}
 
-      <main className="flex-1 max-w-7xl mx-auto w-full px-3 md:px-4 py-4 md:py-6">
+      <main className="flex-1 max-w-7xl mx-auto w-full px-3 md:px-4 pt-4 md:pt-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] md:pb-6">
         <Outlet />
       </main>
     </div>

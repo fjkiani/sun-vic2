@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { supabase } from '../lib/supabase.js';
+import React, { useEffect, useState } from 'react';
+import { supabase, MOCK_AUTH } from '../lib/supabase.js';
 import { useNavigate } from 'react-router-dom';
 
 export function SignInPage() {
@@ -9,6 +9,19 @@ export function SignInPage() {
   const [mode, setMode] = useState('signin'); // signin | signup
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // Mock auth: no sign-in required — bounce straight into the app.
+  useEffect(() => {
+    if (MOCK_AUTH) nav('/chat', { replace: true });
+  }, [nav]);
+
+  if (MOCK_AUTH) {
+    return (
+      <div className="min-h-screen grid place-items-center bg-neutral-50 text-neutral-500">
+        Signing you in…
+      </div>
+    );
+  }
 
   async function submit(e) {
     e.preventDefault();
