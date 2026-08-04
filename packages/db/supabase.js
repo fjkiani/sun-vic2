@@ -11,12 +11,15 @@ import { createClient } from '@supabase/supabase-js';
 export const MOCK_AUTH = String(process.env.MOCK_AUTH ?? 'true').toLowerCase() !== 'false';
 
 // Stable identity shared with the frontend mock (must match src/lib/supabase.js).
+// Uses a REAL auth.users row so the documents.created_by FK is satisfied on writes
+// and reads return that user's actual documents. Override with MOCK_USER_ID /
+// MOCK_USER_EMAIL to point at a different account.
 export const MOCK_USER = {
-  id: '00000000-0000-4000-8000-000000000001',
-  email: 'demo@sunvic.local',
+  id: process.env.MOCK_USER_ID || '6ace8ac8-8dc1-45f8-876a-52051600e02c',
+  email: process.env.MOCK_USER_EMAIL || 'sunvicnj@gmail.com',
   aud: 'authenticated',
   role: 'authenticated',
-  user_metadata: { full_name: 'Demo User' },
+  user_metadata: { full_name: 'Sunvic (mock session)' },
 };
 
 let cachedService = null;

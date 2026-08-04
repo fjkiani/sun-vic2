@@ -16,12 +16,15 @@ const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 export const MOCK_AUTH = String(import.meta.env.VITE_MOCK_AUTH ?? 'true').toLowerCase() !== 'false';
 
 // Stable identity shared with the backend mock (must match packages/db/supabase.js).
+// Uses a REAL auth.users row so reads return that user's actual documents and the
+// documents.created_by FK is satisfied on writes. Override with VITE_MOCK_USER_ID /
+// VITE_MOCK_USER_EMAIL to point at a different account.
 export const MOCK_USER = {
-  id: '00000000-0000-4000-8000-000000000001',
-  email: 'demo@sunvic.local',
+  id: import.meta.env.VITE_MOCK_USER_ID || '6ace8ac8-8dc1-45f8-876a-52051600e02c',
+  email: import.meta.env.VITE_MOCK_USER_EMAIL || 'sunvicnj@gmail.com',
   aud: 'authenticated',
   role: 'authenticated',
-  user_metadata: { full_name: 'Demo User' },
+  user_metadata: { full_name: 'Sunvic (mock session)' },
 };
 export const MOCK_TOKEN = 'mock-local-token';
 
