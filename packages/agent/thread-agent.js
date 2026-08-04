@@ -33,6 +33,7 @@ import { serviceClient } from '../db/supabase.js';
 import { totalDollarsForContract, totalDollarsForInvoice } from '../../netlify/functions/_shared/totals.js';
 import { defaultLocksFor } from '../templates/defaults.js';
 import { findOrCreateProjectForDocument } from '../db/projects.js';
+import { TAX } from '../config/business.js';
 import {
   slotDefsFor,
   slotByKey,
@@ -162,7 +163,7 @@ function threadSystemPrompt({ stage, template, gathered, missing, clarifyCount, 
     '- Prefer TOOLS over prose. When action is needed, call the tool; do not describe what you would do.',
     '- Never invent a homeowner. If a project in memory matches, mention it once.',
     '- Never invent legal text — Sunvic contract legal blocks are canonical and server-side.',
-    '- Money: NJ pricing — gut renos $200–300/sqft, kitchens $30–80k, baths $15–35k. NJ tax 6.625%, materials-only.',
+    `- Money: NJ pricing — gut renos $200–300/sqft, kitchens $30–80k, baths $15–35k. NJ tax ${TAX.rate_percent}%, ${TAX.applies_to === 'materials_only' ? 'materials-only' : TAX.applies_to}.`,
     '- Keep replies to one or two short sentences plus one tool call.',
     '',
     'Memory — recent projects for this user:',
@@ -341,13 +342,41 @@ async function executeThreadTool({ call, thread, user, providerId, model, dispat
     const effectiveTemplate = args.template || template;
     if (!effectiveTemplate) return { applied: false, error: 'no_template' };
 
-    const slotsPrompt = slotsToOneshotPrompt(effectiveTemplate, gatheredSlots || {});
+    const slots = gatheredSlots || {};
+    const slotsPrompt = slotsToOneshotPrompt(effectiveTemplate, slots);
     const extra = (args.extra_context || '').trim();
     const prompt = [
       `Prepare a ${effectiveTemplate} with the following user-provided fields:`,
       slotsPrompt || '(none provided — use defaults)',
       extra ? `\nAdditional context:\n${extra}` : '',
     ].filter(Boolean).join('\n');
+
+    // For invoices, resolve the linked contract so the milestone math is anchored
+    // on the real contract total (closes the gap where the generator had to guess).
+    let invoiceContext = {};
+    if (effectiveTemplate === 'invoice') {
+      const linkRef = slots['linked_contract_id'];
+      let linkedContract = null;
+      if (linkRef) {
+        try { linkedContract = await resolveDocRef(user, linkRef); } catch { linkedContract = null; }
+      }
+      if (linkedContract && linkedContract.template === 'contract') {
+        const cp = linkedContract.payload || {};
+        invoiceContext = {
+          contractTotalCents:
+            linkedContract.total_cents ||
+            cp?.payment?.total_cents ||
+            cp?.scope_of_work?.total_cents || 0,
+          contractRef: linkedContract.doc_number || linkRef,
+          billTo: {
+            client_name: cp?.homeowner?.name || linkedContract.client_name || '',
+            property_address: cp?.homeowner?.address || '',
+            recipient_email: cp?.homeowner?.email || '',
+            recipient_phone: cp?.homeowner?.phone || '',
+          },
+        };
+      }
+    }
 
     let result;
     try {
@@ -357,6 +386,8 @@ async function executeThreadTool({ call, thread, user, providerId, model, dispat
         providerId,
         model,
         userId: user.id,
+        gatheredSlots: slots,
+        invoiceContext,
       });
     } catch (e) {
       return { applied: false, error: 'oneshot_failed', detail: e.message };

@@ -42,7 +42,7 @@ export function ProjectsListPage() {
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Search name, homeowner, or address…"
-          className="flex-1 sm:max-w-md rounded-md border border-neutral-300 px-3 py-1.5 text-sm"
+          className="flex-1 sm:max-w-md rounded-md border border-neutral-300 px-3 min-h-[44px] sm:min-h-0 py-1.5 text-sm"
         />
         <select
           value={statusFilter}
@@ -72,7 +72,7 @@ export function ProjectsListPage() {
         <div className="border-2 border-dashed border-neutral-300 rounded-xl p-12 text-center text-neutral-500">
           <div className="text-sm">No projects yet.</div>
           <div className="text-xs mt-1">Projects are created automatically when you make a new contract or invoice.</div>
-          <Link to="/documents/new" className="inline-block mt-3 px-3 py-1.5 rounded bg-sunvic-500 hover:bg-sunvic-600 text-white text-sm font-semibold">
+          <Link to="/documents/new" className="inline-flex items-center mt-3 px-3 min-h-[44px] py-1.5 rounded bg-sunvic-500 hover:bg-sunvic-600 text-white text-sm font-semibold">
             New Document
           </Link>
         </div>

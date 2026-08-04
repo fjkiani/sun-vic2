@@ -14,6 +14,9 @@ import {
 } from '../templates/defaults.js';
 import { ContractPayload as ContractPayloadSchema, InvoicePayload as InvoicePayloadSchema } from '../schema/documents.js';
 import { mergeWithLocks } from '../../netlify/functions/_shared/locks.js';
+import { buildFallbackChain, isFallbackableError, clampMaxTokens } from './providers/capabilities.js';
+import { composeFromSlots, reconcileWithSlots } from '../templates/compose.js';
+import { TAX } from '../config/business.js';
 
 // ────────────────────────────────────────────────────────────
 // System prompts (schema-aware — matches current sample-derived schema)
@@ -79,7 +82,7 @@ MATH RULES:
 - milestone.labor_portion_cents ≈ 70% of subtotal, materials_portion_cents ≈ 30% (unless prompt says otherwise)
 - Line items should reflect the actual work covered by the milestone. 3-6 line items typical.
 - Sum of line_items[].amount_cents SHOULD equal milestone.subtotal_cents.
-- New Jersey tax: rate_percent=6.625, applies_to="materials_only" is the default for construction unless the prompt says otherwise.
+- New Jersey tax: rate_percent=${TAX.rate_percent}, applies_to="${TAX.applies_to}" is the default for construction unless the prompt says otherwise.
 - tax.amount_cents = round(materials_portion_cents * rate_percent / 100) when applies_to="materials_only"
 - totals.subtotal_cents = milestone.subtotal_cents
 - totals.tax_cents = tax.amount_cents
@@ -150,7 +153,7 @@ function structuralHint(chosenTemplate, defaults) {
     milestone: { percent: 0, subtotal_cents: 0, labor_portion_cents: 0, materials_portion_cents: 0 },
     line_items: ['<3-6 items, each { desc, qty, rate_cents, amount_cents }>'],
     prior_payments: [],
-    tax: { rate_percent: 6.625, applies_to: 'materials_only', amount_cents: 0 },
+    tax: { rate_percent: TAX.rate_percent, applies_to: TAX.applies_to, amount_cents: 0 },
     totals: { subtotal_cents: 0, tax_cents: 0, total_due_cents: 0, remaining_after_cents: 0 },
   };
 }
@@ -158,19 +161,146 @@ function structuralHint(chosenTemplate, defaults) {
 /**
  * Generate a document payload from a natural-language prompt.
  */
-export async function oneshot({ prompt, template, providerId = 'openrouter', model, homeownerName, userId }) {
-  return _runOneshot({ prompt, template, providerId, model, homeownerName, userId });
+export async function oneshot(args) {
+  return _runOneshot(args);
 }
 
 export const generateOneshot = oneshot;
 
-async function _runOneshot({ prompt, template, providerId, model, homeownerName, userId }) {
+// Build the canonical-legal patch that is force-merged on top of any LLM output
+// so the model can never corrupt the fixed legal/identity blocks.
+function canonicalPatchFor(template, defaults, merged) {
+  return {
+    contractor: defaults.contractor,
+    ...(template === 'contract' ? {
+      warranties: defaults.warranties,
+      permits: defaults.permits,
+      insurance: defaults.insurance,
+      dispute_resolution: defaults.dispute_resolution,
+      right_to_cancel: defaults.right_to_cancel,
+      material_selection: defaults.material_selection,
+      change_orders: defaults.change_orders,
+      unforeseen: defaults.unforeseen,
+      invoice_terms: defaults.invoice_terms,
+      signature: defaults.signature,
+      // agreement_summary.text is canonical; scope_recap is the LLM's paragraph.
+      agreement_summary: {
+        text: defaults.agreement_summary.text,
+        scope_recap: (merged?.agreement_summary && merged.agreement_summary.scope_recap) || '',
+        weeks_to_start: merged?.agreement_summary?.weeks_to_start ?? defaults.agreement_summary.weeks_to_start,
+        months_to_complete: merged?.agreement_summary?.months_to_complete ?? defaults.agreement_summary.months_to_complete,
+      },
+      payment: { ...(merged?.payment || {}), schedule: defaults.payment.schedule },
+    } : {
+      invoice_terms: defaults.invoice_terms,
+      payment_methods: defaults.payment_methods,
+    }),
+  };
+}
+
+// Merge + canonical-patch + coerce + schema-parse an LLM candidate.
+// Returns { ok, data } or { ok:false, error }.
+function mergeAndValidate(template, defaults, schema, candidate) {
+  const merged = deepMerge(defaults, candidate);
+  const canonicalPatch = canonicalPatchFor(template, defaults, merged);
+  const { out: safeMerged } = mergeWithLocks(merged, canonicalPatch, {});
+  const repaired = coerceKnownFields(safeMerged, template);
+  const parsed = schema.safeParse(repaired);
+  return parsed.success ? { ok: true, data: parsed.data } : { ok: false, error: parsed.error };
+}
+
+/**
+ * Attempt generation with ONE provider+model. Two internal retries on invalid
+ * JSON / schema failure (re-prompting with the errors). Throws a tagged Error on
+ * provider/transport failure (so the chain can decide to fall back) and returns
+ * { payload } on success. A schema failure after retries is NON-fallbackable
+ * (our prompt/repair issue), so it throws a plain error.
+ */
+async function attemptWithProvider({ providerId, model, apiKey, template, defaults, schema, system, userPrompt }) {
+  const provider = getProvider(providerId, { model, apiKey });
+  let attempt = 0;
+  let candidate = null;
+  let lastZodError = null;
+  let raw = null;
+  let fullPromptForLLM = userPrompt;
+
+  while (attempt < 2) {
+    // Clamp requested output tokens to what this provider+model accepts (Bug E).
+    const maxTokens = clampMaxTokens(8000, providerId, model);
+    // provider.generate throws on transport/HTTP error → propagates to caller (chain).
+    const { text, raw: rawResp } = await provider.generate({
+      system,
+      prompt: fullPromptForLLM,
+      temperature: 0.2,
+      max_tokens: maxTokens,
+      response_format: { type: 'json_object' },
+    });
+    raw = rawResp;
+    if (process.env.SUNVIC_DEBUG_LLM) {
+      console.error('[oneshot debug]', providerId, model, 'attempt', attempt, 'finish=', rawResp?.choices?.[0]?.finish_reason, 'len=', (text || '').length);
+    }
+    try {
+      candidate = extractJson(text);
+    } catch (e) {
+      lastZodError = e;
+      fullPromptForLLM = `${userPrompt}\n\nPrevious attempt returned invalid JSON. Return ONLY a JSON object with no additional text.`;
+      attempt++;
+      continue;
+    }
+    const res = mergeAndValidate(template, defaults, schema, candidate);
+    if (res.ok) {
+      return { payload: res.data, provider: provider.id, raw };
+    }
+    lastZodError = res.error;
+    fullPromptForLLM = [
+      userPrompt,
+      '',
+      'Your previous JSON FAILED schema validation. Errors (first 10):',
+      JSON.stringify(res.error.issues.slice(0, 10), null, 2),
+      'Fix the errors and return the corrected JSON object.',
+    ].join('\n');
+    attempt++;
+  }
+
+  // Last-ditch: force a merge of whatever we have with defaults filling gaps.
+  if (candidate) {
+    const res = mergeAndValidate(template, defaults, schema, candidate);
+    if (res.ok) return { payload: res.data, provider: provider.id, raw };
+  }
+  const err = new Error(`schema_validation_failed:${providerId}:${model || ''}`);
+  err.zod = lastZodError;
+  err.nonFallbackable = true; // our issue, not the provider's — but chain may still try others
+  throw err;
+}
+
+/**
+ * Generate a document payload from a natural-language prompt.
+ *
+ * Resilience model (this is the "executes end to end / production ready" core):
+ *   1. Try the caller's chosen provider, then the shared fallback chain
+ *      (capabilities.buildFallbackChain), skipping providers with no key.
+ *   2. On a FALLBACKABLE provider error (429/5xx/402/quota/Cohere-422-hallucinated
+ *      etc.) advance to the next candidate. On a schema failure, also advance.
+ *   3. If EVERY provider fails, build the payload DETERMINISTICALLY from the
+ *      gathered slots (compose.js) — a document is ALWAYS produced.
+ *   4. ALWAYS run slot reconciliation (compose.reconcileWithSlots) on the final
+ *      payload — LLM or deterministic — so Bug G (start_date / scope total) and
+ *      Bug J (scope-sum === total) invariants hold on every path.
+ *
+ * @param {object} a
+ * @param {string} a.prompt
+ * @param {'contract'|'invoice'} [a.template]
+ * @param {string} [a.providerId]
+ * @param {string} [a.model]
+ * @param {string} [a.homeownerName]
+ * @param {string} a.userId
+ * @param {object} [a.gatheredSlots] dot-path gathered_slots (drives reconciliation + backstop)
+ * @param {object} [a.invoiceContext] { contractTotalCents, contractRef, billTo }
+ */
+async function _runOneshot({ prompt, template, providerId = 'cohere', model, homeownerName, userId, gatheredSlots = {}, invoiceContext = {} }) {
   if (!prompt || typeof prompt !== 'string') throw new Error('prompt required');
 
   const chosenTemplate = template || (await classifyTemplate(prompt, { providerId, userId }));
-  const apiKey = await resolveProviderKey(userId, providerId);
-  if (!apiKey) throw new Error(`no_api_key_for_provider:${providerId}`);
-  const provider = getProvider(providerId, { model, apiKey });
   const defaults = defaultsFor(chosenTemplate, homeownerName);
   const schema = schemaFor(chosenTemplate);
   const system = systemFor(chosenTemplate);
@@ -186,147 +316,97 @@ async function _runOneshot({ prompt, template, providerId, model, homeownerName,
     JSON.stringify(skeleton, null, 2),
   ].join('\n');
 
-  let attempt = 0;
-  let candidate = null;
-  let lastError = null;
-  let raw = null;
-  let fullPromptForLLM = userPrompt;
+  // Resolve keys up-front so we can filter the fallback chain to providers we can
+  // actually call, and pass the right key to each provider.
+  const keyCache = new Map();
+  async function keyFor(pid) {
+    if (keyCache.has(pid)) return keyCache.get(pid);
+    let k = null;
+    try { k = await resolveProviderKey(userId, pid); } catch { k = null; }
+    keyCache.set(pid, k);
+    return k;
+  }
+  // Pre-resolve keys for every provider that could appear in the chain.
+  const candidateProviderIds = new Set([providerId, 'cohere', 'openrouter', 'gemma']);
+  await Promise.all([...candidateProviderIds].map((pid) => keyFor(pid)));
+  const hasKey = (pid) => !!keyCache.get(pid);
 
-  while (attempt < 2) {
-    const { text, raw: rawResp } = await provider.generate({
-      system,
-      prompt: fullPromptForLLM,
-      temperature: 0.2,
-      max_tokens: 12000,
-      response_format: { type: 'json_object' },
-    });
-    raw = rawResp;
-    if (process.env.SUNVIC_DEBUG_LLM) {
-      console.error('[oneshot debug] attempt', attempt, 'finish=', rawResp?.choices?.[0]?.finish_reason, 'content-len=', (text || '').length, 'usage=', JSON.stringify(rawResp?.usage));
-      console.error('[oneshot debug] content head:', JSON.stringify((text || '').slice(0, 300)));
-      try {
-        const fs = await import('node:fs');
-        fs.writeFileSync('/tmp/sunvic_last_llm_' + attempt + '.txt', text || '(empty)');
-      } catch {}
-    }
+  const chain = buildFallbackChain({ providerId, model }, hasKey);
+
+  let generated = null;   // { payload, provider, raw }
+  let usedProvider = null;
+  const failures = [];
+
+  for (const cand of chain) {
+    const apiKey = keyCache.get(cand.providerId);
+    if (!apiKey) { failures.push(`${cand.providerId}:no_key`); continue; }
     try {
-      candidate = extractJson(text);
+      const res = await attemptWithProvider({
+        providerId: cand.providerId,
+        model: cand.model,
+        apiKey,
+        template: chosenTemplate,
+        defaults,
+        schema,
+        system,
+        userPrompt,
+      });
+      generated = res;
+      usedProvider = cand.providerId;
+      break;
     } catch (e) {
-      lastError = e;
-      fullPromptForLLM = `${userPrompt}\n\nPrevious attempt returned invalid JSON. Return ONLY a JSON object with no additional text.`;
-      attempt++;
+      failures.push(`${cand.providerId}:${cand.model || ''}:${(e && e.message) || e}`);
+      // Fallbackable provider error OR our schema failure → try next candidate.
+      if (isFallbackableError(e) || e?.nonFallbackable) continue;
+      // A genuinely non-retryable, non-schema error (e.g. plain 400 bad request
+      // that isn't quota) — still try the deterministic backstop rather than
+      // surfacing a hard failure, but record it.
       continue;
     }
-
-    const merged = deepMerge(defaults, candidate);
-    // Re-apply canonical legal blocks on top so LLM cannot corrupt them.
-    const canonicalPatch = {
-      contractor: defaults.contractor,
-      ...(chosenTemplate === 'contract' ? {
-        warranties: defaults.warranties,
-        permits: defaults.permits,
-        insurance: defaults.insurance,
-        dispute_resolution: defaults.dispute_resolution,
-        right_to_cancel: defaults.right_to_cancel,
-        material_selection: defaults.material_selection,
-        change_orders: defaults.change_orders,
-        unforeseen: defaults.unforeseen,
-        invoice_terms: defaults.invoice_terms,
-        signature: defaults.signature,
-        // agreement_summary.text is canonical (bulleted homeowner obligations + subcontractor clause);
-        // agreement_summary.scope_recap is the LLM's paragraph. Preserve LLM's scope_recap, force canonical text.
-        agreement_summary: {
-          text: defaults.agreement_summary.text,
-          scope_recap: (merged.agreement_summary && merged.agreement_summary.scope_recap) || '',
-          weeks_to_start: merged.agreement_summary?.weeks_to_start ?? defaults.agreement_summary.weeks_to_start,
-          months_to_complete: merged.agreement_summary?.months_to_complete ?? defaults.agreement_summary.months_to_complete,
-        },
-        // Payment SCHEDULE is canonical (percents/conditions), but labor/materials/total come from LLM
-        payment: { ...(merged.payment || {}), schedule: defaults.payment.schedule },
-      } : {
-        invoice_terms: defaults.invoice_terms,
-        payment_methods: defaults.payment_methods,
-      }),
-    };
-    const { out: safeMerged } = mergeWithLocks(merged, canonicalPatch, {});
-    const repaired = coerceKnownFields(safeMerged, chosenTemplate);
-
-    const parsed = schema.safeParse(repaired);
-    if (parsed.success) {
-      candidate = parsed.data;
-      lastError = null;
-      break;
-    }
-    lastError = parsed.error;
-    fullPromptForLLM = [
-      userPrompt,
-      '',
-      'Your previous JSON FAILED schema validation. Errors (first 10):',
-      JSON.stringify(parsed.error.issues.slice(0, 10), null, 2),
-      'Fix the errors and return the corrected JSON object.',
-    ].join('\n');
-    attempt++;
   }
 
-  // If we hit the retry limit without a Zod-clean candidate, the current `candidate` is the
-  // raw LLM JSON (unmerged). Force a final merge+parse with defaults filling gaps, so the caller
-  // never receives an unvalidated payload. If that still fails, throw.
-  if (lastError) {
-    try {
-      const merged = deepMerge(defaults, candidate);
-      const canonicalPatch = {
-        contractor: defaults.contractor,
-        ...(chosenTemplate === 'contract' ? {
-          warranties: defaults.warranties,
-          permits: defaults.permits,
-          insurance: defaults.insurance,
-          dispute_resolution: defaults.dispute_resolution,
-          right_to_cancel: defaults.right_to_cancel,
-          material_selection: defaults.material_selection,
-          change_orders: defaults.change_orders,
-          unforeseen: defaults.unforeseen,
-          invoice_terms: defaults.invoice_terms,
-          signature: defaults.signature,
-          agreement_summary: {
-            text: defaults.agreement_summary.text,
-            scope_recap: (merged.agreement_summary && merged.agreement_summary.scope_recap) || '',
-            weeks_to_start: merged.agreement_summary?.weeks_to_start ?? defaults.agreement_summary.weeks_to_start,
-            months_to_complete: merged.agreement_summary?.months_to_complete ?? defaults.agreement_summary.months_to_complete,
-          },
-          payment: { ...(merged.payment || {}), schedule: defaults.payment.schedule },
-        } : {
-          invoice_terms: defaults.invoice_terms,
-          payment_methods: defaults.payment_methods,
-        }),
-      };
-      const { out: safeMerged } = mergeWithLocks(merged, canonicalPatch, {});
-      // Try to coerce/repair common validation errors before final parse
-      const repaired = coerceKnownFields(safeMerged, chosenTemplate);
-      const finalParsed = schema.safeParse(repaired);
-      if (finalParsed.success) {
-        candidate = finalParsed.data;
-      } else {
-        throw new Error(`oneshot generation failed schema validation: ${JSON.stringify(finalParsed.error.issues.slice(0, 5))}`);
-      }
-    } catch (e) {
-      throw new Error(`oneshot final merge/validate failed: ${e.message}`);
+  // ── Deterministic backstop: every provider failed. Build from slots. ──
+  let source = 'llm';
+  if (!generated) {
+    source = 'deterministic';
+    const backstop = composeFromSlots(chosenTemplate, gatheredSlots, invoiceContext);
+    // Fill any remaining gaps with defaults, then schema-validate.
+    const merged = deepMerge(defaults, backstop);
+    const canonicalPatch = canonicalPatchFor(chosenTemplate, defaults, merged);
+    const { out: safeMerged } = mergeWithLocks(merged, canonicalPatch, {});
+    const parsed = schema.safeParse(coerceKnownFields(safeMerged, chosenTemplate));
+    if (!parsed.success) {
+      throw new Error(`deterministic backstop failed schema validation: ${JSON.stringify(parsed.error.issues.slice(0, 5))} | provider_failures=${failures.join(' | ')}`);
     }
+    generated = { payload: parsed.data, provider: 'deterministic', raw: null };
+    usedProvider = 'deterministic';
+  }
+
+  // ── ALWAYS reconcile with gathered slots (Bug G + Bug J on every path) ──
+  let finalPayload = reconcileWithSlots(chosenTemplate, generated.payload, gatheredSlots, invoiceContext);
+  // Re-validate after reconciliation (reconciliation only sets schema-valid fields,
+  // but validate to guarantee the contract with callers).
+  const reparsed = schema.safeParse(finalPayload);
+  if (reparsed.success) {
+    finalPayload = reparsed.data;
   }
 
   const totalCents = chosenTemplate === 'contract'
-    ? (candidate.payment?.total_cents || 0)
-    : (candidate.totals?.total_due_cents || 0);
+    ? (finalPayload.payment?.total_cents || 0)
+    : (finalPayload.totals?.total_due_cents || 0);
 
   return {
     template: chosenTemplate,
-    payload: candidate,
+    payload: finalPayload,
     doc_number: null,
-    client_name:  chosenTemplate === 'contract' ? candidate.homeowner?.name        : candidate.bill_to?.client_name,
-    client_email: chosenTemplate === 'contract' ? candidate.homeowner?.email       : candidate.bill_to?.recipient_email,
+    client_name:  chosenTemplate === 'contract' ? finalPayload.homeowner?.name  : finalPayload.bill_to?.client_name,
+    client_email: chosenTemplate === 'contract' ? finalPayload.homeowner?.email : finalPayload.bill_to?.recipient_email,
     total_cents: totalCents,
     locks: defaultLocksFor(chosenTemplate),
-    provider: provider.id,
-    raw,
+    provider: usedProvider,
+    source,               // 'llm' | 'deterministic' — surfaced for observability
+    provider_failures: failures,
+    raw: generated.raw,
   };
 }
 

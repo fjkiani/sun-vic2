@@ -3,6 +3,7 @@
 // - chat(): supports tools (Cohere's tool_calls schema is OpenAI-compatible)
 
 import { LLMProvider, ProviderError } from './types.js';
+import { clampMaxTokens } from './capabilities.js';
 
 const COHERE_URL = 'https://api.cohere.com/v2/chat';
 const DEFAULT_MODEL = 'command-a-03-2025';
@@ -44,7 +45,9 @@ export class CohereProvider extends LLMProvider {
         { role: 'user', content: prompt },
       ],
       temperature,
-      max_tokens,
+      // Defense-in-depth: Cohere command-a hard-caps completion at 8192; a raw
+      // request > 8192 returns HTTP 400. Clamp here so no call site can trip it.
+      max_tokens: clampMaxTokens(max_tokens, 'cohere', this.model),
     };
     if (response_format?.type === 'json_object') {
       body.response_format = { type: 'json_object' };

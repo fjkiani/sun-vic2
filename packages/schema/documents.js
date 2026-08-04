@@ -2,6 +2,7 @@
 // Shared by frontend, backend, and agent. Aligned with the 10-page NJ Home Improvement Contract sample.
 
 import { z } from 'zod';
+import { CONTRACTOR, TAX } from '../config/business.js';
 
 // ────────────────────────────────────────────────────────────────
 // Shared building blocks
@@ -28,12 +29,12 @@ export const ScopeGroup = z.object({
 });
 
 export const ContractorInfo = z.object({
-  legal_name: z.string().default('SUNVIC CONTRACTORS LLC'),
-  address: z.string().default('6 Stone Ridge Rd.- Old Bridge - NJ - 08857'),
-  phone: z.string().default('+1 (732) 824-9203'),
-  email: z.string().default('Contact@sunvicnj.com'),
-  license_number: z.string().default('13VH12429600'),
-  website: z.string().default('www.sunvicnj.com'),
+  legal_name: z.string().default(CONTRACTOR.legal_name),
+  address: z.string().default(CONTRACTOR.address),
+  phone: z.string().default(CONTRACTOR.phone),
+  email: z.string().default(CONTRACTOR.email),
+  license_number: z.string().default(CONTRACTOR.license_number),
+  website: z.string().default(CONTRACTOR.website),
 });
 
 export const HomeownerInfo = z.object({
@@ -210,8 +211,8 @@ export const InvoicePayload = z.object({
 
   // Tax settings
   tax: z.object({
-    rate_percent: z.number().min(0).max(100).default(6.625),
-    applies_to: z.enum(['materials_only', 'total', 'none']).default('materials_only'),
+    rate_percent: z.number().min(0).max(100).default(TAX.rate_percent),
+    applies_to: z.enum(['materials_only', 'total', 'none']).default(TAX.applies_to),
     amount_cents: z.number().nonnegative().default(0),
   }).default({}),
 

@@ -27,16 +27,29 @@ const PAYMENT_METHOD_OPTIONS = ['check', 'wire', 'credit_card'];
 // Only accepts 1-4 capitalized words in a row.
 function extractHomeownerName(msg) {
   if (!msg) return null;
-  const patterns = [
-    /\b(?:for|homeowner(?:s)?|client|customer)\s+((?:(?:the\s+)?[A-Z][a-z'’]+(?:\s+(?:and|&)\s+[A-Z][a-z'’]+)?(?:\s+[A-Z][a-z'’]+){0,2}))/,
-    /\b((?:[A-Z][a-z'’]+\s+){1,2}[A-Z][a-z'’]+)\s+(?:at|on|of|in)\s+\d/,
-  ];
-  for (const p of patterns) {
-    const m = msg.match(p);
+  // Bug D fix: the KEYWORD ("for"/"homeowner"/"client"/"customer") must match
+  // case-insensitively (users type "Homeowner John & Sarah Chen"), but the
+  // captured NAME must remain Titlecase-only so we don't grab lowercase filler.
+  // JS regex flags are per-pattern, not per-group, so we normalize the keyword
+  // by matching it case-insensitively and then apply the Titlecase name pattern
+  // to the remainder of the ORIGINAL (case-preserved) string.
+  const NAME = "(?:the\\s+)?[A-Z][a-z'’]+(?:\\s+(?:and|&)\\s+[A-Z][a-z'’]+)?(?:\\s+[A-Z][a-z'’]+){0,2}";
+  const keyword = msg.match(/\b(for|homeowner(?:s)?|client|customer)\s+/i);
+  if (keyword) {
+    const rest = msg.slice(keyword.index + keyword[0].length);
+    const m = rest.match(new RegExp('^(' + NAME + ')'));
     if (m) {
-      let name = m[1].trim().replace(/^the\s+/i, '');
-      // Guard: don't accept generic role words alone.
-      if (/^(?:the\s+)?(?:homeowner|client|customer|owner)s?$/i.test(name)) continue;
+      const name = m[1].trim().replace(/^the\s+/i, '');
+      if (!/^(?:the\s+)?(?:homeowner|client|customer|owner)s?$/i.test(name)) {
+        return name.slice(0, 200);
+      }
+    }
+  }
+  // Secondary: "John Smith at 123 ..." (name immediately before an address number)
+  const before = msg.match(/\b((?:[A-Z][a-z'’]+\s+){1,2}[A-Z][a-z'’]+)\s+(?:at|on|of|in)\s+\d/);
+  if (before) {
+    const name = before[1].trim();
+    if (!/^(?:the\s+)?(?:homeowner|client|customer|owner)s?$/i.test(name)) {
       return name.slice(0, 200);
     }
   }

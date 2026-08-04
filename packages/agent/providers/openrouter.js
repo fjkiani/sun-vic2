@@ -1,14 +1,17 @@
 // OpenRouter adapter — OpenAI-compatible endpoint.
 //
-// Default is `meta-llama/llama-3.3-70b-instruct:free` — the largest tool-clean
-// free model on OpenRouter. `openrouter/free` (meta-router) is available as an
-// opt-in Settings choice; when used, we add `require_parameters: true` so the
-// router refuses providers that can't accept our tool schema.
+// Default is `tencent/hy3:free` — a large-context (262k), tool-capable free
+// model. (The previous default meta-llama/llama-3.3-70b-instruct:free was
+// delisted as a free tier on OpenRouter.) `openrouter/free` (meta-router) is
+// available as an opt-in Settings choice; when used, we add
+// `require_parameters: true` so the router refuses providers that can't accept
+// our tool schema.
 
 import { LLMProvider, ProviderError } from './types.js';
+import { clampMaxTokens } from './capabilities.js';
 
 const OR_URL = 'https://openrouter.ai/api/v1/chat/completions';
-const DEFAULT_MODEL = 'meta-llama/llama-3.3-70b-instruct:free';
+const DEFAULT_MODEL = 'tencent/hy3:free';
 
 // Model prefixes that behave as meta-routers on OpenRouter — anything before
 // the first `/` matches. `openrouter/free`, `openrouter/auto`, etc.
@@ -35,11 +38,21 @@ export class OpenRouterProvider extends LLMProvider {
     if (isMetaRouter(this.model)) {
       body.provider = {
         require_parameters: true,
-        // Prefer well-behaved providers first, fall back to whatever else is free.
+        // Prefer well-behaved providers first.
         // These names come from OpenRouter's provider registry.
         order: ['Meta', 'DeepInfra', 'Groq', 'Cerebras', 'Google', 'Anthropic', 'OpenAI'],
-        allow_fallbacks: true,
+        // Bug B: do NOT allow silent fallback to providers that reject our
+        // OpenAI-format tool schema (e.g. Novita). If none of the ordered
+        // providers can serve the request, fail loudly so the generation layer
+        // can move to the next entry in OUR fallback chain (which uses concrete
+        // model ids, not a meta-router).
+        allow_fallbacks: false,
       };
+    } else if (body.tools?.length) {
+      // For concrete (non-meta-router) models that use tools, still require the
+      // chosen provider to accept our tool parameters rather than silently
+      // dropping them.
+      body.provider = { require_parameters: true, allow_fallbacks: false };
     }
   }
 
@@ -90,7 +103,10 @@ export class OpenRouterProvider extends LLMProvider {
         { role: 'user', content: prompt },
       ],
       temperature,
-      max_tokens,
+      // Defense-in-depth: clamp to what this model actually accepts so an
+      // over-large request can never 4xx (the root cause of the Cohere-class
+      // token-cap bug). See capabilities.js.
+      max_tokens: clampMaxTokens(max_tokens, 'openrouter', this.model),
     };
     // Reasoning-shaped models burn hidden reasoning tokens before emitting content;
     // cap effort so structured-output tasks don't blow the context window.

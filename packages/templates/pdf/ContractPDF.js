@@ -3,7 +3,20 @@ import React from "react";
 import { Document, Page, Text, View, Image } from "@react-pdf/renderer";
 import { s, colors } from "./styles.js";
 import { fmtUSDFromCents, milestoneAmountCents } from "../format.js";
-function PageChrome({ logoUrl, showWatermark = true, showSigStub = true, pageNumber, totalPages }) {
+import { CONTRACTOR } from "../../config/business.js";
+function contractorFromPayload(payload) {
+  const c = payload && payload.contractor || {};
+  return {
+    legal_name: c.legal_name || CONTRACTOR.legal_name,
+    address_footer: c.address_footer || CONTRACTOR.address_footer,
+    address: c.address || CONTRACTOR.address,
+    phone: c.phone || CONTRACTOR.phone,
+    email: c.email || CONTRACTOR.email,
+    license_number: c.license_number || CONTRACTOR.license_number,
+    website: c.website || CONTRACTOR.website
+  };
+}
+function PageChrome({ logoUrl, contractor = CONTRACTOR, showWatermark = true, showSigStub = true, pageNumber, totalPages }) {
   return /* @__PURE__ */ jsxs(Fragment, { children: [
     /* @__PURE__ */ jsx(View, { style: s.header, fixed: true, children: logoUrl && /* @__PURE__ */ jsx(Image, { src: logoUrl, style: s.logoImg }) }),
     logoUrl && showWatermark && /* @__PURE__ */ jsx(Image, { src: logoUrl, style: s.watermark, fixed: true }),
@@ -12,9 +25,9 @@ function PageChrome({ logoUrl, showWatermark = true, showSigStub = true, pageNum
       /* @__PURE__ */ jsx(Text, { style: s.sigStubLine, children: "Contractor Signature: ________________________________" })
     ] }),
     /* @__PURE__ */ jsxs(View, { style: s.footer, fixed: true, children: [
-      /* @__PURE__ */ jsx(Text, { style: s.footerLine, children: "Sunvic Contractors LLC" }),
-      /* @__PURE__ */ jsx(Text, { style: s.footerLine, children: "6 Stone Ridge Rd ,Old Bridge, NJ, 08857" }),
-      /* @__PURE__ */ jsx(Text, { style: s.footerLine, children: "+1 (732) 824-9203" }),
+      /* @__PURE__ */ jsx(Text, { style: s.footerLine, children: contractor.legal_name }),
+      /* @__PURE__ */ jsx(Text, { style: s.footerLine, children: contractor.address_footer }),
+      /* @__PURE__ */ jsx(Text, { style: s.footerLine, children: contractor.phone }),
       /* @__PURE__ */ jsx(
         Text,
         {
@@ -50,7 +63,7 @@ function Checkbox({ checked }) {
 }
 function CoverPage({ payload, logoUrl }) {
   return /* @__PURE__ */ jsxs(Page, { size: "LETTER", style: s.page, children: [
-    /* @__PURE__ */ jsx(PageChrome, { logoUrl, showWatermark: false, showSigStub: false }),
+    /* @__PURE__ */ jsx(PageChrome, { logoUrl, contractor: contractorFromPayload(payload), showWatermark: false, showSigStub: false }),
     logoUrl && /* @__PURE__ */ jsx(Image, { src: logoUrl, style: s.coverBigLogo }),
     /* @__PURE__ */ jsx(Text, { style: s.coverBig, children: "HOME IMPROVEMENT CONTRACT" }),
     /* @__PURE__ */ jsxs(View, { style: s.coverField, children: [
@@ -63,7 +76,7 @@ function CoverPage({ payload, logoUrl }) {
     ] }),
     /* @__PURE__ */ jsxs(View, { style: s.coverField, children: [
       /* @__PURE__ */ jsx(Text, { style: s.coverFieldLabel, children: "PREPARED BY:" }),
-      /* @__PURE__ */ jsx(Text, { style: s.coverFieldValue, children: "SUNVIC CONTRACTORS LLC" })
+      /* @__PURE__ */ jsx(Text, { style: s.coverFieldValue, children: contractorFromPayload(payload).legal_name })
     ] }),
     /* @__PURE__ */ jsxs(View, { style: s.coverField, children: [
       /* @__PURE__ */ jsx(Text, { style: s.coverFieldLabel, children: "PREPARED ON" }),
@@ -75,7 +88,7 @@ function SectionAPage({ payload, logoUrl }) {
   const c = payload.contractor || {};
   const h = payload.homeowner || {};
   return /* @__PURE__ */ jsxs(Page, { size: "LETTER", style: s.page, children: [
-    /* @__PURE__ */ jsx(PageChrome, { logoUrl }),
+    /* @__PURE__ */ jsx(PageChrome, { logoUrl, contractor: contractorFromPayload(payload) }),
     /* @__PURE__ */ jsx(SectionBar, { letter: "A", title: "AGREEMENT BACKGROUND" }),
     /* @__PURE__ */ jsx(Text, { style: s.para, children: "This Agreement is made and entered into as of the date this Agreement is signed by both Parties, by and between:" }),
     /* @__PURE__ */ jsx(SubBar, { text: "1 - GENERAL CONTRACTOR INFORMATION" }),
@@ -99,7 +112,7 @@ function SectionBScope({ payload, logoUrl }) {
   const groups = scope.groups || [];
   const total = payload.payment?.total_cents || 0;
   return /* @__PURE__ */ jsxs(Page, { size: "LETTER", style: s.page, children: [
-    /* @__PURE__ */ jsx(PageChrome, { logoUrl }),
+    /* @__PURE__ */ jsx(PageChrome, { logoUrl, contractor: contractorFromPayload(payload) }),
     /* @__PURE__ */ jsx(SectionBar, { letter: "B", title: "SCOPE OF WORK" }),
     /* @__PURE__ */ jsx(Text, { style: s.paraTight, children: scope.intro }),
     /* @__PURE__ */ jsx(Text, { style: s.scopeTitleBar, children: "WORK TO BE PERFORMED" }),
@@ -149,7 +162,7 @@ function SectionCPage({ payload, logoUrl }) {
   const schedule = p.schedule || [];
   const homeownerName = payload.homeowner?.name?.trim() || "____________________";
   return /* @__PURE__ */ jsxs(Page, { size: "LETTER", style: s.page, children: [
-    /* @__PURE__ */ jsx(PageChrome, { logoUrl }),
+    /* @__PURE__ */ jsx(PageChrome, { logoUrl, contractor: contractorFromPayload(payload) }),
     /* @__PURE__ */ jsx(SectionBar, { letter: "C", title: "PAYMENT TERMS" }),
     /* @__PURE__ */ jsxs(Text, { style: s.para, children: [
       "By signing this agreement, the Homeowner",
@@ -223,7 +236,7 @@ function SectionCPage({ payload, logoUrl }) {
 }
 function SectionUnforeseenPage({ payload, logoUrl }) {
   return /* @__PURE__ */ jsxs(Page, { size: "LETTER", style: s.page, children: [
-    /* @__PURE__ */ jsx(PageChrome, { logoUrl }),
+    /* @__PURE__ */ jsx(PageChrome, { logoUrl, contractor: contractorFromPayload(payload) }),
     /* @__PURE__ */ jsxs(View, { style: { marginTop: 20 }, children: [
       /* @__PURE__ */ jsxs(Text, { style: s.para, children: [
         "By signing this agreement, the Homeowner",
@@ -250,7 +263,7 @@ function SectionDEFGPage({ payload, logoUrl }) {
   const perm = payload.permits || {};
   const ins = payload.insurance || {};
   return /* @__PURE__ */ jsxs(Page, { size: "LETTER", style: s.page, children: [
-    /* @__PURE__ */ jsx(PageChrome, { logoUrl }),
+    /* @__PURE__ */ jsx(PageChrome, { logoUrl, contractor: contractorFromPayload(payload) }),
     /* @__PURE__ */ jsx(SectionBar, { letter: "D", title: "ESTIMATED PROJECT TIMELINE" }),
     /* @__PURE__ */ jsxs(Text, { style: s.paraTight, children: [
       "By signing this agreement, the Homeowner",
@@ -304,7 +317,7 @@ function SectionHIJPage({ payload, logoUrl }) {
   const r = payload.right_to_cancel || {};
   const sig = payload.signature || {};
   return /* @__PURE__ */ jsxs(Page, { size: "LETTER", style: s.page, children: [
-    /* @__PURE__ */ jsx(PageChrome, { logoUrl }),
+    /* @__PURE__ */ jsx(PageChrome, { logoUrl, contractor: contractorFromPayload(payload) }),
     /* @__PURE__ */ jsx(SectionBar, { letter: "H", title: "DISPUTE RESOLUTION" }),
     /* @__PURE__ */ jsx(Text, { style: s.paraTight, children: d.intro }),
     (d.steps || []).map((step, i) => /* @__PURE__ */ jsxs(Text, { style: s.paraTight, children: [

@@ -3,14 +3,25 @@ import React from "react";
 import { Document, Page, Text, View, Image } from "@react-pdf/renderer";
 import { s, colors } from "./styles.js";
 import { fmtUSDFromCents, fmtDate, fmtDateShort } from "../format.js";
-function PageChrome({ logoUrl, showWatermark = true }) {
+import { CONTRACTOR } from "../../config/business.js";
+function contractorFromPayload(payload) {
+  const c = payload && payload.contractor || {};
+  return {
+    legal_name: c.legal_name || CONTRACTOR.legal_name,
+    address_footer: c.address_footer || CONTRACTOR.address_footer,
+    phone: c.phone || CONTRACTOR.phone,
+    email: c.email || CONTRACTOR.email,
+    license_number: c.license_number || CONTRACTOR.license_number
+  };
+}
+function PageChrome({ logoUrl, contractor = CONTRACTOR, showWatermark = true }) {
   return /* @__PURE__ */ jsxs(Fragment, { children: [
     /* @__PURE__ */ jsx(View, { style: s.header, fixed: true, children: logoUrl && /* @__PURE__ */ jsx(Image, { src: logoUrl, style: s.logoImg }) }),
     logoUrl && showWatermark && /* @__PURE__ */ jsx(Image, { src: logoUrl, style: s.watermark, fixed: true }),
     /* @__PURE__ */ jsxs(View, { style: s.footer, fixed: true, children: [
-      /* @__PURE__ */ jsx(Text, { style: s.footerLine, children: "Sunvic Contractors LLC" }),
-      /* @__PURE__ */ jsx(Text, { style: s.footerLine, children: "6 Stone Ridge Rd ,Old Bridge, NJ, 08857" }),
-      /* @__PURE__ */ jsx(Text, { style: s.footerLine, children: "+1 (732) 824-9203" }),
+      /* @__PURE__ */ jsx(Text, { style: s.footerLine, children: contractor.legal_name }),
+      /* @__PURE__ */ jsx(Text, { style: s.footerLine, children: contractor.address_footer }),
+      /* @__PURE__ */ jsx(Text, { style: s.footerLine, children: contractor.phone }),
       /* @__PURE__ */ jsx(
         Text,
         {
@@ -31,12 +42,21 @@ function SectionBar({ letter, title, suffix }) {
   ] }) });
 }
 function InvoiceHeader({ payload }) {
+  const c = contractorFromPayload(payload);
   return /* @__PURE__ */ jsxs(View, { style: s.invHeaderRow, children: [
     /* @__PURE__ */ jsxs(View, { style: s.invTitleCol, children: [
       /* @__PURE__ */ jsx(Text, { style: s.invBigTitle, children: "INVOICE" }),
-      /* @__PURE__ */ jsx(Text, { style: { fontSize: 9, color: colors.GRAY_MUTED, marginTop: 6 }, children: "SUNVIC CONTRACTORS LLC \xB7 License #13VH12429600" }),
-      /* @__PURE__ */ jsx(Text, { style: { fontSize: 9, marginTop: 2 }, children: "6 Stone Ridge Rd ,Old Bridge, NJ, 08857" }),
-      /* @__PURE__ */ jsx(Text, { style: { fontSize: 9 }, children: "+1 (732) 824-9203  \xB7  Contact@sunvicnj.com" })
+      /* @__PURE__ */ jsxs(Text, { style: { fontSize: 9, color: colors.GRAY_MUTED, marginTop: 6 }, children: [
+        c.legal_name,
+        " \xB7 License #",
+        c.license_number
+      ] }),
+      /* @__PURE__ */ jsx(Text, { style: { fontSize: 9, marginTop: 2 }, children: c.address_footer }),
+      /* @__PURE__ */ jsxs(Text, { style: { fontSize: 9 }, children: [
+        c.phone,
+        "  \xB7  ",
+        c.email
+      ] })
     ] }),
     /* @__PURE__ */ jsx(View, { style: { width: 240 }, children: /* @__PURE__ */ jsxs(View, { style: s.invMetaTable, children: [
       /* @__PURE__ */ jsxs(View, { style: s.invMetaRow, children: [
@@ -194,9 +214,10 @@ function PaymentMethodsBlock({ payload }) {
   ] });
 }
 function InvoicePDF({ payload, logoUrl }) {
+  const contractor = contractorFromPayload(payload);
   return /* @__PURE__ */ jsxs(Document, { children: [
     /* @__PURE__ */ jsxs(Page, { size: "LETTER", style: s.page, children: [
-      /* @__PURE__ */ jsx(PageChrome, { logoUrl }),
+      /* @__PURE__ */ jsx(PageChrome, { logoUrl, contractor }),
       /* @__PURE__ */ jsx(InvoiceHeader, { payload }),
       /* @__PURE__ */ jsx(BillToBlock, { payload }),
       /* @__PURE__ */ jsx(MilestoneSummaryBox, { payload }),
@@ -204,7 +225,7 @@ function InvoicePDF({ payload, logoUrl }) {
       /* @__PURE__ */ jsx(TotalsBlock, { payload })
     ] }),
     /* @__PURE__ */ jsxs(Page, { size: "LETTER", style: s.page, children: [
-      /* @__PURE__ */ jsx(PageChrome, { logoUrl }),
+      /* @__PURE__ */ jsx(PageChrome, { logoUrl, contractor }),
       /* @__PURE__ */ jsxs(View, { style: { marginTop: 20 }, children: [
         /* @__PURE__ */ jsx(PriorPaymentsBlock, { payload }),
         /* @__PURE__ */ jsx(PaymentMethodsBlock, { payload }),

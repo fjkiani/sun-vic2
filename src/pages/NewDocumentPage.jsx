@@ -77,7 +77,7 @@ export function NewDocumentPage() {
           <button
             disabled={busy || !prompt.trim()}
             onClick={startAgentic}
-            className="px-4 py-2 rounded-md bg-sunvic-500 hover:bg-sunvic-600 text-white text-sm font-semibold disabled:opacity-60"
+            className="inline-flex items-center justify-center px-4 min-h-[44px] py-2 rounded-md bg-sunvic-500 hover:bg-sunvic-600 text-white text-sm font-semibold disabled:opacity-60"
           >
             {busy ? 'Starting…' : 'Start chat →'}
           </button>
@@ -107,11 +107,11 @@ export function NewDocumentPage() {
         </div>
         <div className="flex flex-wrap gap-3">
           <button disabled={busy} onClick={() => createBlank('contract')}
-            className="px-4 py-2 rounded-md bg-white border border-sunvic-500 text-sunvic-600 hover:bg-sunvic-50 text-sm font-semibold disabled:opacity-60">
+            className="inline-flex items-center justify-center px-4 min-h-[44px] py-2 rounded-md bg-white border border-sunvic-500 text-sunvic-600 hover:bg-sunvic-50 text-sm font-semibold disabled:opacity-60">
             New blank Contract
           </button>
           <button disabled={busy} onClick={() => createBlank('invoice')}
-            className="px-4 py-2 rounded-md bg-white border border-neutral-300 text-neutral-700 hover:bg-neutral-50 text-sm font-semibold disabled:opacity-60">
+            className="inline-flex items-center justify-center px-4 min-h-[44px] py-2 rounded-md bg-white border border-neutral-300 text-neutral-700 hover:bg-neutral-50 text-sm font-semibold disabled:opacity-60">
             New blank Invoice
           </button>
         </div>

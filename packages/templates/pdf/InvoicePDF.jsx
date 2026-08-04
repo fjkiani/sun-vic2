@@ -7,8 +7,23 @@ import React from 'react';
 import { Document, Page, Text, View, Image } from '@react-pdf/renderer';
 import { s, colors } from './styles.js';
 import { fmtUSDFromCents, fmtDate, fmtDateShort } from '../format.js';
+import { CONTRACTOR } from '../../config/business.js';
 
-function PageChrome({ logoUrl, showWatermark = true }) {
+// Resolve the contractor identity for rendering: prefer values carried on the
+// document payload (seeded from the business config via schema defaults), falling
+// back to the config CONTRACTOR constant. Single source of truth, no hardcoding.
+function contractorFromPayload(payload) {
+  const c = (payload && payload.contractor) || {};
+  return {
+    legal_name: c.legal_name || CONTRACTOR.legal_name,
+    address_footer: c.address_footer || CONTRACTOR.address_footer,
+    phone: c.phone || CONTRACTOR.phone,
+    email: c.email || CONTRACTOR.email,
+    license_number: c.license_number || CONTRACTOR.license_number,
+  };
+}
+
+function PageChrome({ logoUrl, contractor = CONTRACTOR, showWatermark = true }) {
   return (
     <>
       <View style={s.header} fixed>
@@ -18,9 +33,9 @@ function PageChrome({ logoUrl, showWatermark = true }) {
         <Image src={logoUrl} style={s.watermark} fixed />
       )}
       <View style={s.footer} fixed>
-        <Text style={s.footerLine}>Sunvic Contractors LLC</Text>
-        <Text style={s.footerLine}>6 Stone Ridge Rd ,Old Bridge, NJ, 08857</Text>
-        <Text style={s.footerLine}>+1 (732) 824-9203</Text>
+        <Text style={s.footerLine}>{contractor.legal_name}</Text>
+        <Text style={s.footerLine}>{contractor.address_footer}</Text>
+        <Text style={s.footerLine}>{contractor.phone}</Text>
         <Text
           style={s.footerPageNumber}
           render={({ pageNumber, totalPages }) => `Page ${pageNumber} / ${totalPages}`}
@@ -42,15 +57,16 @@ function SectionBar({ letter, title, suffix }) {
 }
 
 function InvoiceHeader({ payload }) {
+  const c = contractorFromPayload(payload);
   return (
     <View style={s.invHeaderRow}>
       <View style={s.invTitleCol}>
         <Text style={s.invBigTitle}>INVOICE</Text>
         <Text style={{ fontSize: 9, color: colors.GRAY_MUTED, marginTop: 6 }}>
-          SUNVIC CONTRACTORS LLC · License #13VH12429600
+          {c.legal_name} · License #{c.license_number}
         </Text>
-        <Text style={{ fontSize: 9, marginTop: 2 }}>6 Stone Ridge Rd ,Old Bridge, NJ, 08857</Text>
-        <Text style={{ fontSize: 9 }}>+1 (732) 824-9203  ·  Contact@sunvicnj.com</Text>
+        <Text style={{ fontSize: 9, marginTop: 2 }}>{c.address_footer}</Text>
+        <Text style={{ fontSize: 9 }}>{c.phone}  ·  {c.email}</Text>
       </View>
 
       <View style={{ width: 240 }}>
@@ -256,10 +272,11 @@ function PaymentMethodsBlock({ payload }) {
 
 // ── Root ─────────────────────────────────────────────────────
 export function InvoicePDF({ payload, logoUrl }) {
+  const contractor = contractorFromPayload(payload);
   return (
     <Document>
       <Page size="LETTER" style={s.page}>
-        <PageChrome logoUrl={logoUrl} />
+        <PageChrome logoUrl={logoUrl} contractor={contractor} />
         <InvoiceHeader payload={payload} />
         <BillToBlock payload={payload} />
         <MilestoneSummaryBox payload={payload} />
@@ -268,7 +285,7 @@ export function InvoicePDF({ payload, logoUrl }) {
       </Page>
 
       <Page size="LETTER" style={s.page}>
-        <PageChrome logoUrl={logoUrl} />
+        <PageChrome logoUrl={logoUrl} contractor={contractor} />
         <View style={{ marginTop: 20 }}>
           <PriorPaymentsBlock payload={payload} />
           <PaymentMethodsBlock payload={payload} />

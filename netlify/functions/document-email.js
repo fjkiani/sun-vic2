@@ -8,6 +8,7 @@ import { json, handleOptions, parseJson, bearer } from './_shared/http.js';
 import { verifyUser, serviceClient } from '../../packages/db/supabase.js';
 import { pdfComponentFor } from '../../packages/templates/pdf/index.js';
 import { fmtUSD } from '../../packages/templates/format.js';
+import { CONTRACTOR, CONTRACTOR_PHONE_TEL, PUBLIC_SITE_URL } from '../../packages/config/business.js';
 
 export const handler = async (event) => {
   const pre = handleOptions(event);
@@ -30,7 +31,7 @@ export const handler = async (event) => {
   if (!to) return json(400, { error: 'missing_recipient' });
 
   const Component = pdfComponentFor(doc.template);
-  const logoUrl = (process.env.PUBLIC_SITE_URL || 'https://sunvicnj.com') + '/logo/sunvic.png';
+  const logoUrl = PUBLIC_SITE_URL + '/logo/sunvic.png';
   let pdfBuffer;
   try {
     pdfBuffer = await renderToBuffer(
@@ -53,8 +54,8 @@ export const handler = async (event) => {
       <p>Hi ${doc.client_name || 'there'},</p>
       <p>Please find your ${templateLabel.toLowerCase()} <strong>#${doc.doc_number}</strong> attached.</p>
       <p><strong>Total:</strong> ${totalUSD}</p>
-      <p>Reach us anytime at <a href="tel:+17328249203">(732) 824-9203</a> or reply to this email.</p>
-      <p style="color:#6b7280;font-size:12px">Sunvic, LLC Contractors · Licensed & Insured · NJ License #13VH12429600</p>
+      <p>Reach us anytime at <a href="tel:${CONTRACTOR_PHONE_TEL}">${CONTRACTOR.phone}</a> or reply to this email.</p>
+      <p style="color:#6b7280;font-size:12px">${CONTRACTOR.legal_name} · Licensed &amp; Insured · NJ License #${CONTRACTOR.license_number}</p>
     </div>
   `;
 

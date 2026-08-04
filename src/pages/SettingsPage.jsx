@@ -8,8 +8,8 @@ import { api } from '../lib/api.js';
  */
 
 const PROVIDERS = [
-  { id: 'openrouter', label: 'OpenRouter', help: 'sk-or-v1-... — routes to any free model (Llama, Qwen, Nemotron, Gemma, etc). Default: openrouter/free.' },
-  { id: 'cohere', label: 'Cohere', help: 'cohere_... — Command A tool-calling.' },
+  { id: 'openrouter', label: 'OpenRouter', help: 'sk-or-v1-... — routes to free tool-capable models (Tencent Hunyuan, Nemotron, Gemma, etc). Default: tencent/hy3:free.' },
+  { id: 'cohere', label: 'Cohere', help: 'cohere_... — Command A tool-calling (recommended primary).' },
   { id: 'gemma', label: 'Google Gemma', help: 'Google AI Studio API key — no tool-calling, oneshot mode only.' },
   { id: 'resend', label: 'Resend (email)', help: 're_... — for outbound email delivery.' },
 ];
@@ -78,43 +78,47 @@ function KeyRow({ provider }) {
         <label className="block text-xs text-neutral-600 mb-1">
           {existing ? 'Replace key' : 'Paste key'}
         </label>
-        <div className="flex gap-2">
+        {/* Mobile-first: input on its own full-width row; action buttons wrap
+            beneath it. On sm+ they sit inline. All tap targets ≥44px. */}
+        <div className="flex flex-col sm:flex-row gap-2">
           <input
             type={showValue ? 'text' : 'password'}
             value={value}
             onChange={(e) => { setValue(e.target.value); setError(null); }}
             placeholder={`Paste your ${provider.label} API key`}
-            className="flex-1 border border-neutral-300 rounded px-3 py-2 text-sm font-mono"
+            className="w-full sm:flex-1 min-w-0 border border-neutral-300 rounded px-3 min-h-[44px] py-2 text-sm font-mono"
             autoComplete="off"
           />
-          <button
-            type="button"
-            onClick={() => setShowValue((s) => !s)}
-            className="px-3 py-2 border border-neutral-300 rounded text-xs hover:bg-neutral-50"
-            disabled={!value}
-          >
-            {showValue ? 'Hide' : 'Reveal'}
-          </button>
-          <button
-            type="button"
-            disabled={!value || saveMut.isPending}
-            onClick={() => saveMut.mutate(value)}
-            className="px-4 py-2 bg-sunvic-500 text-white text-sm font-medium rounded disabled:opacity-40 hover:bg-sunvic-600"
-          >
-            {saveMut.isPending ? 'Saving…' : (existing ? 'Update' : 'Save')}
-          </button>
-          {existing && (
+          <div className="flex gap-2 flex-wrap">
             <button
               type="button"
-              onClick={() => {
-                if (window.confirm(`Delete stored ${provider.label} key?`)) deleteMut.mutate();
-              }}
-              className="px-3 py-2 border border-red-300 text-red-700 text-xs rounded hover:bg-red-50"
-              disabled={deleteMut.isPending}
+              onClick={() => setShowValue((s) => !s)}
+              className="flex-1 sm:flex-none px-3 min-h-[44px] py-2 border border-neutral-300 rounded text-xs hover:bg-neutral-50 disabled:opacity-40"
+              disabled={!value}
             >
-              {deleteMut.isPending ? '…' : 'Delete'}
+              {showValue ? 'Hide' : 'Reveal'}
             </button>
-          )}
+            <button
+              type="button"
+              disabled={!value || saveMut.isPending}
+              onClick={() => saveMut.mutate(value)}
+              className="flex-1 sm:flex-none px-4 min-h-[44px] py-2 bg-sunvic-500 text-white text-sm font-medium rounded disabled:opacity-40 hover:bg-sunvic-600"
+            >
+              {saveMut.isPending ? 'Saving…' : (existing ? 'Update' : 'Save')}
+            </button>
+            {existing && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (window.confirm(`Delete stored ${provider.label} key?`)) deleteMut.mutate();
+                }}
+                className="flex-1 sm:flex-none px-3 min-h-[44px] py-2 border border-red-300 text-red-700 text-xs rounded hover:bg-red-50 disabled:opacity-40"
+                disabled={deleteMut.isPending}
+              >
+                {deleteMut.isPending ? '…' : 'Delete'}
+              </button>
+            )}
+          </div>
         </div>
         {error && (
           <div className="mt-2 text-xs text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1">

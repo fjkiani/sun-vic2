@@ -30,7 +30,9 @@ const iParse = InvoicePayload.safeParse(i);
 check('Contract default validates', cParse.success, cParse.success ? '' : JSON.stringify(cParse.error.issues.slice(0, 3)));
 check('Invoice default validates', iParse.success, iParse.success ? '' : JSON.stringify(iParse.error.issues.slice(0, 3)));
 check('Contract has canonical warranty', /warranty/i.test(c.warranties?.text || ''));
-check('Contract has 5-milestone payment schedule', (c.payment?.schedule?.length || 0) === 5);
+// Canonical SUNVIC schedule = 6 milestones (Deposit 15 / Progress 20·30·15·15 / Final 5),
+// matching the sample contract PDF. (Earlier this asserted 5, which was incorrect.)
+check('Contract has 6-milestone payment schedule', (c.payment?.schedule?.length || 0) === 6, `got ${c.payment?.schedule?.length}`);
 check('Contract payment sums to 100%', c.payment.schedule.reduce((s, m) => s + m.percent, 0) === 100);
 
 console.log('\n[locks] guard behaviour\n');
@@ -44,22 +46,29 @@ check('mergeWithLocks drops locked path', merged.warranties.text === c.warrantie
 check('mergeWithLocks lets non-locked through', merged.agreement_summary === 'new');
 check('mergeWithLocks reports skipped', skipped.includes('warranties.text'));
 
-console.log('\n[totals] calculations\n');
+console.log('\n[totals] calculations (canonical schema shape)\n');
+// Bug K fix: totalDollarsFor{Invoice,Contract} now return a SCALAR (dollars), not a
+// {subtotal,tax,total} object — the old object shape was mis-consumed as a scalar by the
+// agent call sites, producing NaN. Invoice money lives on milestone.subtotal_cents +
+// tax.amount_cents (integer cents) per packages/schema/documents.js. (Earlier this test used
+// a legacy phases/items/qty/rate shape the schema never produced, so totals were always 0.)
 const invWithItems = {
   ...i,
-  phases: [{ id: 'p1', title: 'X', items: [{ desc: 'a', qty: 2, rate: 100 }, { desc: 'b', qty: 1, rate: 50 }] }],
-  tax_rate_percent: 8.625,
+  milestone: { ...(i.milestone || {}), subtotal_cents: 25000 },   // $250.00
+  tax: { ...(i.tax || {}), amount_cents: 2156 },                  // $21.56 (8.625% on $250)
+  totals: { ...(i.totals || {}), total_due_cents: 27156 },        // $271.56 due
 };
-const t = totalDollarsForInvoice(invWithItems);
-check('Invoice subtotal correct', t.subtotal === 250, `got ${t.subtotal}`);
-check('Invoice tax correct', Math.abs(t.tax - (250 * 0.08625)) < 0.01, `got ${t.tax}`);
-check('totalCentsFor rounds correctly', totalCentsFor('invoice', invWithItems) === 27156, `got ${totalCentsFor('invoice', invWithItems)}`);
+check('Invoice total (dollars) correct', totalDollarsForInvoice(invWithItems) === 271.56, `got ${totalDollarsForInvoice(invWithItems)}`);
+check('totalCentsFor(invoice) correct', totalCentsFor('invoice', invWithItems) === 27156, `got ${totalCentsFor('invoice', invWithItems)}`);
 
+// Contract totals: scope_of_work.groups[].tasks[].amount_cents + scope_of_work.total_cents.
 const cWithItems = {
   ...c,
-  scope_of_work: { phases: [{ id: 'p1', title: 'X', items: [{ desc: 'a', qty: 5, rate: 200 }] }] },
+  scope_of_work: { groups: [{ title: 'X', tasks: [{ description: 'a', amount_cents: 100000 }] }], total_cents: 100000 },
+  payment: { ...c.payment, total_cents: 100000 },
 };
-check('Contract subtotal correct', totalDollarsForContract(cWithItems).subtotal === 1000);
+check('Contract total (dollars) correct', totalDollarsForContract(cWithItems) === 1000, `got ${totalDollarsForContract(cWithItems)}`);
+check('totalCentsFor(contract) correct', totalCentsFor('contract', cWithItems) === 100000, `got ${totalCentsFor('contract', cWithItems)}`);
 
 console.log('\n[pdf] server-side render\n');
 const cPdf = await renderToBuffer(React.createElement(ContractPDF, { payload: c, docNumber: 'CTR-2026-0001' }));

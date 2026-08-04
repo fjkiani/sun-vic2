@@ -1,15 +1,15 @@
 // Canonical Sunvic legal text — verbatim from the 10-page NJ Home Improvement Contract sample.
 // Any deviation from the sample is a bug.
+//
+// Structured business constants (contractor identity, insurance amount) come
+// from the single source of truth in packages/config/business.js. When no env
+// override is set these resolve to the canonical SUNVIC defaults, so the
+// rendered output is byte-for-byte identical. The long-form legal prose below
+// keeps the company name inline as legal boilerplate (not configuration).
 
-export const SUNVIC_CONTRACTOR = {
-  legal_name: 'SUNVIC CONTRACTORS LLC',
-  address: '6 Stone Ridge Rd.- Old Bridge - NJ - 08857',
-  address_footer: '6 Stone Ridge Rd ,Old Bridge, NJ, 08857',
-  phone: '+1 (732) 824-9203',
-  email: 'Contact@sunvicnj.com',
-  license_number: '13VH12429600',
-  website: 'www.sunvicnj.com',
-};
+import { CONTRACTOR, INSURANCE_AMOUNT_LABEL } from '../config/business.js';
+
+export const SUNVIC_CONTRACTOR = CONTRACTOR;
 
 // A - Section 4 Agreement Summary (verbatim; blanks for homeowner name / weeks / months)
 export const AGREEMENT_SUMMARY_BODY =
@@ -76,7 +76,7 @@ export const PERMITS_OPTIONS = [
 
 // Section G — verbatim from page 9
 export const INSURANCE_TEXT =
-`SUNVIC CONTRACTORS LLC maintains commercial general liability insurance of at least $500,000 per occurrence, as required by New Jersey law. A copy of the insurance certificate is attached to this agreement.`;
+`${CONTRACTOR.legal_name} maintains commercial general liability insurance of at least ${INSURANCE_AMOUNT_LABEL} per occurrence, as required by New Jersey law. A copy of the insurance certificate is attached to this agreement.`;
 
 // Section H — verbatim from page 10
 export const DISPUTE_RESOLUTION_INTRO =

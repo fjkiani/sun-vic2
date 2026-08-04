@@ -7,9 +7,27 @@ import React from 'react';
 import { Document, Page, Text, View, Image } from '@react-pdf/renderer';
 import { s, colors } from './styles.js';
 import { fmtUSDFromCents, milestoneAmountCents } from '../format.js';
+import { CONTRACTOR } from '../../config/business.js';
+
+// Resolve the contractor identity for rendering: prefer values carried on the
+// document payload (which are themselves seeded from the business config via the
+// schema defaults), falling back to the config CONTRACTOR constant. This keeps a
+// single source of truth and avoids hardcoded identity strings in the PDF.
+function contractorFromPayload(payload) {
+  const c = (payload && payload.contractor) || {};
+  return {
+    legal_name: c.legal_name || CONTRACTOR.legal_name,
+    address_footer: c.address_footer || CONTRACTOR.address_footer,
+    address: c.address || CONTRACTOR.address,
+    phone: c.phone || CONTRACTOR.phone,
+    email: c.email || CONTRACTOR.email,
+    license_number: c.license_number || CONTRACTOR.license_number,
+    website: c.website || CONTRACTOR.website,
+  };
+}
 
 // ── Page decorations ──────────────────────────────────────────
-function PageChrome({ logoUrl, showWatermark = true, showSigStub = true, pageNumber, totalPages }) {
+function PageChrome({ logoUrl, contractor = CONTRACTOR, showWatermark = true, showSigStub = true, pageNumber, totalPages }) {
   return (
     <>
       {/* Top-left small logo + wordmark */}
@@ -32,9 +50,9 @@ function PageChrome({ logoUrl, showWatermark = true, showSigStub = true, pageNum
 
       {/* Footer */}
       <View style={s.footer} fixed>
-        <Text style={s.footerLine}>Sunvic Contractors LLC</Text>
-        <Text style={s.footerLine}>6 Stone Ridge Rd ,Old Bridge, NJ, 08857</Text>
-        <Text style={s.footerLine}>+1 (732) 824-9203</Text>
+        <Text style={s.footerLine}>{contractor.legal_name}</Text>
+        <Text style={s.footerLine}>{contractor.address_footer}</Text>
+        <Text style={s.footerLine}>{contractor.phone}</Text>
         <Text
           style={s.footerPageNumber}
           render={({ pageNumber: pn, totalPages: tp }) => `Page ${pn} / ${tp}`}
@@ -84,7 +102,7 @@ function Checkbox({ checked }) {
 function CoverPage({ payload, logoUrl }) {
   return (
     <Page size="LETTER" style={s.page}>
-      <PageChrome logoUrl={logoUrl} showWatermark={false} showSigStub={false} />
+      <PageChrome logoUrl={logoUrl} contractor={contractorFromPayload(payload)} showWatermark={false} showSigStub={false} />
 
       {logoUrl && <Image src={logoUrl} style={s.coverBigLogo} />}
 
@@ -102,7 +120,7 @@ function CoverPage({ payload, logoUrl }) {
 
       <View style={s.coverField}>
         <Text style={s.coverFieldLabel}>PREPARED BY:</Text>
-        <Text style={s.coverFieldValue}>SUNVIC CONTRACTORS LLC</Text>
+        <Text style={s.coverFieldValue}>{contractorFromPayload(payload).legal_name}</Text>
       </View>
 
       <View style={s.coverField}>
@@ -119,7 +137,7 @@ function SectionAPage({ payload, logoUrl }) {
   const h = payload.homeowner || {};
   return (
     <Page size="LETTER" style={s.page}>
-      <PageChrome logoUrl={logoUrl} />
+      <PageChrome logoUrl={logoUrl} contractor={contractorFromPayload(payload)} />
 
       <SectionBar letter="A" title="AGREEMENT BACKGROUND" />
       <Text style={s.para}>
@@ -155,7 +173,7 @@ function SectionBScope({ payload, logoUrl }) {
 
   return (
     <Page size="LETTER" style={s.page}>
-      <PageChrome logoUrl={logoUrl} />
+      <PageChrome logoUrl={logoUrl} contractor={contractorFromPayload(payload)} />
 
       <SectionBar letter="B" title="SCOPE OF WORK" />
       <Text style={s.paraTight}>{scope.intro}</Text>
@@ -232,7 +250,7 @@ function SectionCPage({ payload, logoUrl }) {
 
   return (
     <Page size="LETTER" style={s.page}>
-      <PageChrome logoUrl={logoUrl} />
+      <PageChrome logoUrl={logoUrl} contractor={contractorFromPayload(payload)} />
 
       <SectionBar letter="C" title="PAYMENT TERMS" />
       <Text style={s.para}>
@@ -298,7 +316,7 @@ function SectionCPage({ payload, logoUrl }) {
 function SectionUnforeseenPage({ payload, logoUrl }) {
   return (
     <Page size="LETTER" style={s.page}>
-      <PageChrome logoUrl={logoUrl} />
+      <PageChrome logoUrl={logoUrl} contractor={contractorFromPayload(payload)} />
       <View style={{ marginTop: 20 }}>
         <Text style={s.para}>
           By signing this agreement, the Homeowner{' '}
@@ -331,7 +349,7 @@ function SectionDEFGPage({ payload, logoUrl }) {
 
   return (
     <Page size="LETTER" style={s.page}>
-      <PageChrome logoUrl={logoUrl} />
+      <PageChrome logoUrl={logoUrl} contractor={contractorFromPayload(payload)} />
 
       <SectionBar letter="D" title="ESTIMATED PROJECT TIMELINE" />
       <Text style={s.paraTight}>
@@ -382,7 +400,7 @@ function SectionHIJPage({ payload, logoUrl }) {
 
   return (
     <Page size="LETTER" style={s.page}>
-      <PageChrome logoUrl={logoUrl} />
+      <PageChrome logoUrl={logoUrl} contractor={contractorFromPayload(payload)} />
 
       <SectionBar letter="H" title="DISPUTE RESOLUTION" />
       <Text style={s.paraTight}>{d.intro}</Text>

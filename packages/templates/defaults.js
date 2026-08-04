@@ -1,6 +1,7 @@
 // Default document payloads applied on creation.
 // Mirrors sample structure: Contract = A–J with cover, Invoice = milestone-linked.
 
+import { TAX } from '../config/business.js';
 import {
   SUNVIC_CONTRACTOR,
   AGREEMENT_SUMMARY_BODY,
@@ -163,8 +164,8 @@ export function defaultInvoicePayload({ homeownerName } = {}) {
     prior_payments: [],
 
     tax: {
-      rate_percent: 6.625,
-      applies_to: 'materials_only',
+      rate_percent: TAX.rate_percent,
+      applies_to: TAX.applies_to,
       amount_cents: 0,
     },
 

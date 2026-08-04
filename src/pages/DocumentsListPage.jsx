@@ -46,10 +46,10 @@ export function DocumentsListPage() {
       <div className="flex items-start md:items-center justify-between gap-3 flex-wrap">
         <h1 className="text-xl md:text-2xl font-bold">Documents</h1>
         <div className="flex gap-2 flex-wrap">
-          <Link to="/documents/new?template=contract" className="px-3 md:px-4 py-2 rounded-md bg-sunvic-500 hover:bg-sunvic-600 text-white text-sm font-semibold">
+          <Link to="/documents/new?template=contract" className="inline-flex items-center px-3 md:px-4 min-h-[44px] sm:min-h-0 py-2 rounded-md bg-sunvic-500 hover:bg-sunvic-600 text-white text-sm font-semibold">
             + Contract
           </Link>
-          <Link to="/documents/new?template=invoice" className="px-3 md:px-4 py-2 rounded-md border border-sunvic-500 text-sunvic-600 hover:bg-sunvic-50 text-sm font-semibold">
+          <Link to="/documents/new?template=invoice" className="inline-flex items-center px-3 md:px-4 min-h-[44px] sm:min-h-0 py-2 rounded-md border border-sunvic-500 text-sunvic-600 hover:bg-sunvic-50 text-sm font-semibold">
             + Invoice
           </Link>
         </div>
@@ -74,7 +74,7 @@ export function DocumentsListPage() {
         <div className="flex-1 min-w-full sm:min-w-[200px]">
           <div className="text-xs text-neutral-500 uppercase font-semibold mb-1">Search</div>
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="title contains…"
-            className="w-full rounded-md border border-neutral-300 px-2 py-1.5 text-sm" />
+            className="w-full rounded-md border border-neutral-300 px-2 min-h-[44px] sm:min-h-0 py-1.5 text-sm" />
         </div>
       </div>
 
