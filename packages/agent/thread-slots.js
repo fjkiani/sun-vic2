@@ -34,9 +34,14 @@ function extractHomeownerName(msg) {
   // by matching it case-insensitively and then apply the Titlecase name pattern
   // to the remainder of the ORIGINAL (case-preserved) string.
   const NAME = "(?:the\\s+)?[A-Z][a-z'’]+(?:\\s+(?:and|&)\\s+[A-Z][a-z'’]+)?(?:\\s+[A-Z][a-z'’]+){0,2}";
-  const keyword = msg.match(/\b(for|homeowner(?:s)?|client|customer)\s+/i);
-  if (keyword) {
-    const rest = msg.slice(keyword.index + keyword[0].length);
+  // Try EVERY keyword occurrence, not just the first. A message like
+  // "a contract for a full gut renovation ... homeowner Jane Smith" matches "for"
+  // first (followed by "a full gut...", not a name) — we must keep scanning until a
+  // keyword is actually followed by a Titlecase name ("homeowner Jane Smith").
+  const keywordRe = /\b(for|homeowner(?:s)?|client|customer)\s+/gi;
+  let kw;
+  while ((kw = keywordRe.exec(msg)) !== null) {
+    const rest = msg.slice(kw.index + kw[0].length);
     const m = rest.match(new RegExp('^(' + NAME + ')'));
     if (m) {
       const name = m[1].trim().replace(/^the\s+/i, '');
