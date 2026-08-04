@@ -394,14 +394,13 @@ async function executeThreadTool({ call, thread, user, providerId, model, dispat
     }
 
     const svc = serviceClient();
-    const year = new Date().getFullYear();
-    const prefix = effectiveTemplate === 'contract' ? 'CTR' : 'INV';
-    const { count } = await svc
-      .from('documents')
-      .select('id', { count: 'exact', head: true })
-      .eq('created_by', user.id)
-      .eq('template', effectiveTemplate);
-    const docNumber = `${prefix}-${year}-${String((count || 0) + 1).padStart(4, '0')}`;
+    // Use the atomic next_doc_number() counter (same as the REST documents.js path).
+    // The previous count(contracts)+1 approach raced and collided with existing
+    // doc_numbers (doc_number is globally UNIQUE), causing insert_failed on generate.
+    const { data: docNumber, error: numErr } = await svc.rpc('next_doc_number', { p_template: effectiveTemplate });
+    if (numErr || !docNumber) {
+      return { applied: false, error: 'doc_number_failed', detail: numErr?.message || 'no number returned' };
+    }
 
     const totalDollars = effectiveTemplate === 'contract'
       ? totalDollarsForContract(result.payload)
