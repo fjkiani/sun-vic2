@@ -2,8 +2,9 @@ import { Fragment, jsx, jsxs } from "react/jsx-runtime";
 import React from "react";
 import { Document, Page, Text, View, Image } from "@react-pdf/renderer";
 import { s, colors } from "./styles.js";
-import { fmtUSDFromCents, milestoneAmountCents } from "../format.js";
+import { fmtUSDFromCents, milestoneAmountCents, fmtDate } from "../format.js";
 import { CONTRACTOR } from "../../config/business.js";
+import { DEFAULT_SCOPE_QTY } from "../defaults.js";
 function contractorFromPayload(payload) {
   const c = payload && payload.contractor || {};
   return {
@@ -140,7 +141,7 @@ function SectionBScope({ payload, logoUrl }) {
                   "\u2500 ",
                   d
                 ] }, di)) }),
-                /* @__PURE__ */ jsx(View, { style: s.scopeQtyCell, children: /* @__PURE__ */ jsx(Text, { children: t.qty || "Lump Sump" }) }),
+                /* @__PURE__ */ jsx(View, { style: s.scopeQtyCell, children: /* @__PURE__ */ jsx(Text, { children: t.qty || DEFAULT_SCOPE_QTY }) }),
                 /* @__PURE__ */ jsx(View, { style: s.scopePriceCell, children: /* @__PURE__ */ jsx(Text, { children: t.unit_price_cents ? fmtUSDFromCents(t.unit_price_cents) : "" }) }),
                 /* @__PURE__ */ jsx(View, { style: s.scopeAmountCell, children: /* @__PURE__ */ jsx(Text, { children: t.amount_cents ? fmtUSDFromCents(t.amount_cents) : "" }) })
               ]
@@ -294,12 +295,36 @@ function SectionDEFGPage({ payload, logoUrl }) {
         " of the project start date."
       ] })
     ] }),
+    t.start_date || t.substantial_completion_date || t.final_completion_date ? /* @__PURE__ */ jsxs(View, { style: { marginTop: 4 }, children: [
+      t.start_date ? /* @__PURE__ */ jsxs(View, { style: s.bulletRow, children: [
+        /* @__PURE__ */ jsx(Text, { style: s.bulletDot, children: "\u2022" }),
+        /* @__PURE__ */ jsxs(Text, { style: s.bulletText, children: [
+          "Scheduled Start Date   ",
+          /* @__PURE__ */ jsx(Text, { style: s.bold, children: fmtDate(t.start_date) })
+        ] })
+      ] }) : null,
+      t.substantial_completion_date ? /* @__PURE__ */ jsxs(View, { style: s.bulletRow, children: [
+        /* @__PURE__ */ jsx(Text, { style: s.bulletDot, children: "\u2022" }),
+        /* @__PURE__ */ jsxs(Text, { style: s.bulletText, children: [
+          "Substantial Completion   ",
+          /* @__PURE__ */ jsx(Text, { style: s.bold, children: fmtDate(t.substantial_completion_date) })
+        ] })
+      ] }) : null,
+      t.final_completion_date ? /* @__PURE__ */ jsxs(View, { style: s.bulletRow, children: [
+        /* @__PURE__ */ jsx(Text, { style: s.bulletDot, children: "\u2022" }),
+        /* @__PURE__ */ jsxs(Text, { style: s.bulletText, children: [
+          "Final Completion   ",
+          /* @__PURE__ */ jsx(Text, { style: s.bold, children: fmtDate(t.final_completion_date) })
+        ] })
+      ] }) : null
+    ] }) : null,
     /* @__PURE__ */ jsx(Text, { style: [s.paraTight, { marginTop: 4 }], children: t.disclaimer }),
     /* @__PURE__ */ jsx(SectionBar, { letter: "E", title: "WARRANTIES" }),
     /* @__PURE__ */ jsx(Text, { style: s.paraTight, children: w.text }),
     /* @__PURE__ */ jsx(Text, { style: s.paraTight, children: w.start_text }),
     /* @__PURE__ */ jsx(Text, { style: s.paraTight, children: w.materials_text }),
     /* @__PURE__ */ jsx(SectionBar, { letter: "F", title: "PERMITS & COMPLIANCE", suffix: "(Check the appropriate box to indicate responsibility.)" }),
+    perm.intro ? /* @__PURE__ */ jsx(Text, { style: s.paraTight, children: perm.intro }) : null,
     /* @__PURE__ */ jsxs(View, { style: s.checkboxRow, children: [
       /* @__PURE__ */ jsx(Checkbox, { checked: !!perm.contractor_responsible }),
       /* @__PURE__ */ jsx(Text, { style: s.paraTight, children: "SUNVIC CONTRACTORS LLC is responsible for obtaining all required permits necessary for the work." })
@@ -336,7 +361,7 @@ function SectionHIJPage({ payload, logoUrl }) {
       const isBigCap = i === 0;
       return /* @__PURE__ */ jsx(Text, { style: isBigCap ? s.rtcLine : s.rtcLineNormal, children: para }, i);
     }) }),
-    /* @__PURE__ */ jsx(SectionBar, { letter: "J", title: "SINGNATURE" }),
+    /* @__PURE__ */ jsx(SectionBar, { letter: "J", title: "SIGNATURE" }),
     /* @__PURE__ */ jsx(Text, { style: s.paraTight, children: sig.intro?.split("\n")[0] }),
     /* @__PURE__ */ jsx(Text, { style: s.paraTight, children: sig.intro?.split("\n").slice(1).join(" ") }),
     /* @__PURE__ */ jsxs(View, { style: s.sigGrid, children: [
