@@ -130,7 +130,13 @@ export function ChatHomePage() {
       <div>
         <div className="flex items-center justify-between mb-2">
           <div className="text-sm font-semibold text-neutral-700">Recent chats</div>
-          <Link to="/documents" className="text-xs text-neutral-500 hover:text-neutral-800">All documents →</Link>
+          {/* 16px tall before — below the ~44px a thumb can reliably hit. */}
+          <Link
+            to="/documents"
+            className="min-h-[44px] -mr-2 px-3 inline-flex items-center text-xs text-neutral-500 hover:text-neutral-800"
+          >
+            All documents →
+          </Link>
         </div>
         {isLoading && <div className="text-sm text-neutral-500">Loading…</div>}
         {!isLoading && threads.length === 0 && (

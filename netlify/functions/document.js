@@ -54,10 +54,15 @@ export const handler = async (event) => {
     const body = parseJson(event);
     if (body === null) return json(400, { error: 'bad_json' });
 
-    // Optimistic concurrency: if the client sent an If-Match header with the
-    // updated_at they last saw, refuse the write if the doc has moved on.
-    // Header names are normalized to lowercase by the Vercel adapter and by Netlify.
-    const ifMatch = event.headers?.['if-match'];
+    // Optimistic concurrency: if the client sent the updated_at it last saw, refuse the
+    // write if the doc has moved on. Header names are normalized to lowercase by the
+    // Vercel adapter and by Netlify.
+    //
+    // Prefer X-Expected-Updated-At. If-Match is still read so an older cached bundle
+    // keeps working, but clients must not send it: it is a standard conditional header
+    // that expects an ETag, and Vercel's edge answers 412 PRECONDITION_FAILED on a
+    // timestamp value before this handler's response reaches the browser.
+    const ifMatch = event.headers?.['x-expected-updated-at'] || event.headers?.['if-match'];
     if (ifMatch && doc.updated_at && ifMatch !== doc.updated_at) {
       return json(409, {
         error: 'conflict',

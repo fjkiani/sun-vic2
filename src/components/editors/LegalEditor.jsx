@@ -3,6 +3,7 @@ import { Accordion, AccordionItem } from '../ui/Accordion.jsx';
 import { FieldRow, TextField } from '../ui/FieldRow.jsx';
 import { LEGAL_TABS, blocksFor } from '../doc/docSections.js';
 import { LEGAL_BLOCK_META, legalBlocksFor } from './legal/legalMeta.js';
+import { SectionAgentButton } from '../agent/SectionAgentButton.jsx';
 import { DEFAULT_CONTRACT_LOCKS, DEFAULT_INVOICE_LOCKS } from '../../../packages/templates/legal.js';
 
 // The paths the server ships locked. Membership here means "canonical language", which is
@@ -367,7 +368,15 @@ export function LegalEditor({ doc, onSave, onToggleLock, section = null }) {
               subtitle={meta.plain}
               badge={incomplete && !isLocked ? `${filled}/${total}` : null}
               warn={incomplete && !isLocked}
-              action={canonical.length > 0 ? <LockChip locked={isLocked} onToggle={toggle} /> : null}
+              action={(
+                // The lock chip used to occupy this slot alone, which silently dropped the
+                // per-section agent button from every legal block — measured live: Form
+                // had 3, Legal had 0. Both belong here.
+                <div className="flex items-center gap-1.5">
+                  {canonical.length > 0 && <LockChip locked={isLocked} onToggle={toggle} />}
+                  <SectionAgentButton tab="legal" blocks={[id]} label={meta.title} />
+                </div>
+              )}
             >
               <div className="space-y-3">
                 <p className="text-xs text-neutral-500 leading-snug">{meta.help}</p>

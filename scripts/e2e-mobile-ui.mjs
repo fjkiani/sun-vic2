@@ -109,6 +109,10 @@ async function main() {
   const ctx = await browser.newContext({ viewport: VIEWPORT, deviceScaleFactor: 3, isMobile: true, hasTouch: true });
   const page = await ctx.newPage();
   const consoleErrors = [];
+  const failedWrites = [];
+  page.on('response', (r) => {
+    if (r.status() >= 400) failedWrites.push(`${r.status()} ${r.request().method()} ${r.url().split('/').slice(-1)[0].slice(0, 40)}`);
+  });
   page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text().slice(0, 160)); });
   page.on('pageerror', (e) => consoleErrors.push(`pageerror: ${String(e.message).slice(0, 160)}`));
 
@@ -169,42 +173,50 @@ async function main() {
   const lockChip = page.locator('[aria-label="Unlock this section for editing"]').first();
   ok(await lockChip.count() > 0, 'a locked legal block shows an Unlock control');
 
-  // Open the Warranty sub-tab where warranties.text lives.
+  // Open the Warranty sub-tab, where warranties.text is a real textarea.
   const warrantyTab = page.getByRole('tab', { name: /^Warranty$/i }).first();
-  if (await warrantyTab.count() > 0) { await warrantyTab.click(); await page.waitForTimeout(600); }
+  if (await warrantyTab.count() > 0) { await warrantyTab.click(); await page.waitForTimeout(1400); }
 
-  // Expand the first legal block.
+  // Expand the Warranty block itself (the header, not its lock chip).
   const firstBlock = page.locator('button').filter({ hasText: /Warrant/i })
-    .filter({ hasNot: page.locator('[aria-label*="Unlock"]') }).first();
-  if (await firstBlock.count() > 0) { await firstBlock.click().catch(() => {}); await page.waitForTimeout(900); }
+    .filter({ hasNot: page.locator('[aria-label*="lock this section"]') }).first();
+  if (await firstBlock.count() > 0) { await firstBlock.click().catch(() => {}); await page.waitForTimeout(1000); }
 
   const readOnlyNote = page.getByText(/canonical Sunvic language/i).first();
   ok(await readOnlyNote.count() > 0, 'locked block explains why it is read-only');
 
+  // A locked body may hold a textarea, a text input, or radios — accept any field.
   const gated = await page.evaluate(() => {
     const el = [...document.querySelectorAll('[aria-disabled="true"]')]
-      .find((n) => n.querySelector('textarea, input'));
-    if (!el) return null;
-    return { pointerEvents: getComputedStyle(el).pointerEvents, opacity: getComputedStyle(el).opacity };
+      .find((n) => n.querySelector('textarea, input, [role="radio"]'));
+    if (!el) return { found: false, disabledNodes: document.querySelectorAll('[aria-disabled="true"]').length };
+    const cs = getComputedStyle(el);
+    return { found: true, pointerEvents: cs.pointerEvents, opacity: cs.opacity };
   });
-  ok(gated && gated.pointerEvents === 'none',
+  ok(gated.found && gated.pointerEvents === 'none',
     'locked fields are non-interactive, so an edit cannot be silently dropped',
     JSON.stringify(gated));
 
-  // Now unlock and prove the same field becomes writable and PERSISTS.
-  const before = (await api('GET', `/api/documents/${doc.id}`)).json?.document?.locks?.['warranties.text'];
-  const unlockBtn = page.locator('[aria-label="Unlock this section for editing"]').first();
-  if (await unlockBtn.count() > 0) {
-    await unlockBtn.click();
-    await page.waitForTimeout(2500); // debounced autosave
-  }
-  const after = (await api('GET', `/api/documents/${doc.id}`)).json?.document?.locks?.['warranties.text'];
-  ok(before === true && after !== true, 'tapping Unlock actually clears the lock server-side',
-    `locks['warranties.text'] ${JSON.stringify(before)} -> ${JSON.stringify(after)}`);
+  // Unlock, then assert BOTH the server state and the same chip's label.
+  // The chip previously never flipped because the PATCH carrying the concurrency token
+  // was answered 412 by the CDN, so the client discarded a write that had in fact landed.
+  const chip = page.locator('[aria-label*="lock this section"]').first();
+  const chipBefore = (await chip.innerText().catch(() => '')).trim();
+  const locksBefore = (await api('GET', `/api/documents/${doc.id}`)).json?.document?.locks || {};
+  await chip.click();
+  await page.waitForTimeout(3500); // debounced autosave + refetch
+  const locksAfter = (await api('GET', `/api/documents/${doc.id}`)).json?.document?.locks || {};
+  const flipped = Object.keys({ ...locksBefore, ...locksAfter }).filter((k) => locksBefore[k] !== locksAfter[k]);
+  ok(flipped.length > 0, 'tapping Unlock actually clears the lock server-side', JSON.stringify(flipped));
 
-  // Assert a positive signal, not merely the absence of one.
-  const relock = await page.locator('[aria-label*="lock this section"]').first().innerText().catch(() => '');
-  ok(/unlocked/i.test(relock), 'after unlocking, the chip shows the re-lock affordance', JSON.stringify(relock));
+  const chipAfter = (await chip.innerText().catch(() => '')).trim();
+  ok(/unlocked/i.test(chipAfter),
+    'the chip re-renders to the re-lock state, so the tap is not silently lost',
+    `${JSON.stringify(chipBefore)} -> ${JSON.stringify(chipAfter)}`);
+
+  // And no failed writes anywhere in that exchange.
+  ok(!failedWrites.some((f) => /41[28]|409/.test(f)),
+    'no rejected write during the unlock exchange', failedWrites.slice(0, 3).join(' | '));
 
   // ── agent reachable on mobile ────────────────────────────
   line('agent on mobile');
@@ -219,32 +231,39 @@ async function main() {
   await page.waitForTimeout(1500);
   const row = page.getByText('MOBILE E2E — safe to delete').first();
   if (await row.count() > 0) {
+    await row.scrollIntoViewIfNeeded();          // an off-screen box cannot be touched
+    await page.waitForTimeout(400);
     const box = await row.boundingBox();
-    if (box) {
-      // Leftward drag past the arm threshold.
-      await page.mouse.move(box.x + box.width - 20, box.y + box.height / 2);
-      await page.mouse.down();
-      for (let x = 0; x <= 200; x += 25) {
-        await page.mouse.move(box.x + box.width - 20 - x, box.y + box.height / 2);
-        await page.waitForTimeout(30);
-      }
-      await page.mouse.up();
-      await page.waitForTimeout(1200);
+    if (box && box.y >= 0 && box.y < VIEWPORT.height) {
+      // Real touch, not mouse: the row listens to pointer events and sits inside an
+      // <a href>, so a mouse drag reads as a click and navigates instead of swiping.
+      const cdp = await ctx.newCDPSession(page);
+      const y = box.y + box.height / 2;
+      const x0 = box.x + box.width - 24;
+      const touch = (type, x) => cdp.send('Input.dispatchTouchEvent', {
+        type, touchPoints: type === 'touchEnd' ? [] : [{ x, y }],
+      });
+      await touch('touchStart', x0);
+      for (let i = 20; i <= 220; i += 20) { await touch('touchMove', x0 - i); await page.waitForTimeout(35); }
+      await touch('touchEnd', x0 - 220);
+      await page.waitForTimeout(1500);
+      ok(page.url().includes('/work'), 'swiping does not navigate away', page.url());
       const undo = page.getByText(/undo/i).first();
       ok(await undo.count() > 0, 'swiping a draft left offers Undo');
       if (await undo.count() > 0) {
         await undo.click();
-        await page.waitForTimeout(1500);
+        await page.waitForTimeout(1800);
         const live = (await api('GET', '/api/documents')).json;
         const list = live?.documents || live || [];
-        ok(Array.isArray(list) && list.some((d) => d.id === doc.id), 'Undo restores the document');
+        ok(Array.isArray(list) && list.some((x) => x.id === doc.id), 'Undo restores the document');
       }
-    } else ok(false, 'could not locate the row to swipe');
+    } else ok(false, 'could not bring the row on-screen to swipe', JSON.stringify(box));
   } else ok(false, 'fixture row not found in the Work list');
 
   line('console health');
   const realErrors = consoleErrors.filter((e) => !/favicon|404 \(Not Found\).*\.png|ResizeObserver/i.test(e));
   ok(realErrors.length === 0, 'no uncaught console errors across the sweep', realErrors.slice(0, 4).join(' | '));
+  ok(failedWrites.length === 0, 'no failing HTTP requests across the sweep', [...new Set(failedWrites)].slice(0, 5).join(' | '));
 
   await browser.close();
 

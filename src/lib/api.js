@@ -39,8 +39,16 @@ export const api = {
   createDocument: (body) => request('POST', '/api/documents', body),
   getDocument:    (id) => request('GET', `/api/documents/${id}`),
   updateDocument: (id, body, opts = {}) => {
-    // opts.expectedUpdatedAt → sends `If-Unmodified-Since` semantics as `If-Match` header.
-    const headers = opts.expectedUpdatedAt ? { 'If-Match': opts.expectedUpdatedAt } : undefined;
+    // Optimistic-concurrency token: the updated_at the client last saw.
+    //
+    // This used to travel as `If-Match`, which is wrong — RFC 9110 says If-Match carries
+    // an ETag, and a Postgres timestamp is not one. Vercel's edge evaluates the standard
+    // conditional itself and answered 412 PRECONDITION_FAILED before our handler's
+    // response could get back, while the write had already landed at the origin. The
+    // client then held a stale updated_at, so every subsequent save failed 409
+    // "updated in another tab/session" and the editor wedged with no way out.
+    // A non-standard header name keeps the CDN out of it.
+    const headers = opts.expectedUpdatedAt ? { 'X-Expected-Updated-At': opts.expectedUpdatedAt } : undefined;
     return request('PATCH', `/api/documents/${id}`, body, headers);
   },
   deleteDocument: (id, opts = {}) =>
