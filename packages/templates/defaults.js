@@ -1,6 +1,11 @@
 // Default document payloads applied on creation.
 // Mirrors sample structure: Contract = A–J with cover, Invoice = milestone-linked.
 
+// Canonical quantity label for a fixed-price scope task. Lives here (not inline) because
+// it is written by the contract form, the HTML mirror, the composer and the PDF fallback;
+// it was previously misspelled in all four places and that typo reached signed contracts.
+export const DEFAULT_SCOPE_QTY = 'Lump Sum';
+
 import { TAX } from '../config/business.js';
 import {
   SUNVIC_CONTRACTOR,
@@ -208,7 +213,7 @@ export function getScopePreset(presetId) {
       tasks: g.tasks.map((t) => ({
         task: t.task,
         description: [...(t.description || [])],
-        qty: t.qty || 'Lump Sump',
+        qty: t.qty || DEFAULT_SCOPE_QTY,
         unit_price_cents: 0,
         amount_cents: 0,
       })),
