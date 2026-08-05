@@ -144,7 +144,6 @@ export function supportsTools(providerId, model) {
 
 export const DEFAULT_FALLBACK_CHAIN = [
   { providerId: 'cohere', model: 'command-a-03-2025' },
-  { providerId: 'openrouter', model: 'tencent/hy3:free' },
   { providerId: 'openrouter', model: 'google/gemma-4-31b-it:free' },
   { providerId: 'openrouter', model: 'nvidia/nemotron-3-super-120b-a12b:free' },
   { providerId: 'openrouter', model: 'openai/gpt-oss-20b:free' },
@@ -189,6 +188,11 @@ export function isFallbackableError(err) {
   // Provider-side model/context complaints that another model may not have.
   if (msg.includes('quota') || msg.includes('rate limit') || msg.includes('overloaded')) return true;
   if (msg.includes('no endpoints found') || msg.includes('not available')) return true;
+  // A free slug that has been delisted or moved behind payment. OpenRouter answers 404
+  // with "This model is unavailable for free." Twice now a pinned free slug has died
+  // this way, and because 404 was not classified fallbackable the chain surfaced a hard
+  // failure instead of advancing to the next candidate.
+  if (status === 404 || msg.includes('unavailable for free') || msg.includes('is unavailable')) return true;
   // network-ish
   if (msg.includes('fetch failed') || msg.includes('econnreset') || msg.includes('timeout')) return true;
   return false;

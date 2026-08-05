@@ -11,7 +11,10 @@ import { LLMProvider, ProviderError } from './types.js';
 import { clampMaxTokens } from './capabilities.js';
 
 const OR_URL = 'https://openrouter.ai/api/v1/chat/completions';
-const DEFAULT_MODEL = 'tencent/hy3:free';
+// Verified live 2026-08-05: 'tencent/hy3:free' now answers 404 "This model is unavailable
+// for free" — the second pinned free slug to be delisted this way. Pointing at the
+// free meta-router instead of a single slug so one delisting cannot take the path down.
+const DEFAULT_MODEL = 'openrouter/free';
 
 // Model prefixes that behave as meta-routers on OpenRouter — anything before
 // the first `/` matches. `openrouter/free`, `openrouter/auto`, etc.
