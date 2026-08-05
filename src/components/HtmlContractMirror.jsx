@@ -1,5 +1,6 @@
 import React from 'react';
 import { InlineEditable } from './InlineEditable.jsx';
+import { DEFAULT_SCOPE_QTY } from '../../packages/templates/defaults.js';
 
 function fmtCurrency(cents) {
   if (cents == null || cents === '') return '';
@@ -81,7 +82,7 @@ function ScopeBlock({ payload, save, locks }) {
   const addGroup = () => setGroups([...groups, { category: 'New Category', tasks: [] }]);
   const deleteGroup = (gi) => setGroups(groups.filter((_, i) => i !== gi));
   const addTask = (gi) =>
-    setGroups(groups.map((g, i) => i === gi ? { ...g, tasks: [...(g.tasks || []), { task: 'New task', description: [], qty: 'Lump Sump', unit_price_cents: 0, amount_cents: 0 }] } : g));
+    setGroups(groups.map((g, i) => i === gi ? { ...g, tasks: [...(g.tasks || []), { task: 'New task', description: [], qty: DEFAULT_SCOPE_QTY, unit_price_cents: 0, amount_cents: 0 }] } : g));
   const deleteTask = (gi, ti) =>
     setGroups(groups.map((g, i) => i === gi ? { ...g, tasks: (g.tasks || []).filter((_, x) => x !== ti) } : g));
   const addBullet = (gi, ti) =>

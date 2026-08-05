@@ -39,7 +39,7 @@ REQUIRED STRUCTURE OVERVIEW:
 
 RULES:
 - Only use the FOUR category values above. Group your tasks accordingly.
-- Each task has: task (short name like "Kitchen Cabinets"), description (array of concrete bullet strings, 3-8 items), qty (usually "1" or "Lump Sump"), unit_price_cents, amount_cents.
+- Each task has: task (short name like "Kitchen Cabinets"), description (array of concrete bullet strings, 3-8 items), qty (usually "1" or "Lump Sum"), unit_price_cents, amount_cents.
 - All monetary values are integer CENTS (e.g. 34_000_000 for $340,000). Never use dollars.
 - payment.total_cents MUST equal payment.labor_cost_cents + payment.materials_cost_cents.
 - Sum of all tasks' amount_cents SHOULD roughly equal payment.total_cents but the server does not enforce this — just be realistic.

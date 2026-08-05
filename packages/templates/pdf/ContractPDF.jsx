@@ -6,8 +6,9 @@
 import React from 'react';
 import { Document, Page, Text, View, Image } from '@react-pdf/renderer';
 import { s, colors } from './styles.js';
-import { fmtUSDFromCents, milestoneAmountCents } from '../format.js';
+import { fmtUSDFromCents, milestoneAmountCents, fmtDate } from '../format.js';
 import { CONTRACTOR } from '../../config/business.js';
+import { DEFAULT_SCOPE_QTY } from '../defaults.js';
 
 // Resolve the contractor identity for rendering: prefer values carried on the
 // document payload (which are themselves seeded from the business config via the
@@ -213,7 +214,7 @@ function SectionBScope({ payload, logoUrl }) {
                       ))}
                     </View>
                     <View style={s.scopeQtyCell}>
-                      <Text>{t.qty || 'Lump Sump'}</Text>
+                      <Text>{t.qty || DEFAULT_SCOPE_QTY}</Text>
                     </View>
                     <View style={s.scopePriceCell}>
                       <Text>{t.unit_price_cents ? fmtUSDFromCents(t.unit_price_cents) : ''}</Text>
@@ -369,6 +370,34 @@ function SectionDEFGPage({ payload, logoUrl }) {
           Estimated Completion Date   <Text style={s.bold}>{t.months_to_complete ?? 6} months</Text> of the project start date.
         </Text>
       </View>
+      {(t.start_date || t.substantial_completion_date || t.final_completion_date) ? (
+        <View style={{ marginTop: 4 }}>
+          {t.start_date ? (
+            <View style={s.bulletRow}>
+              <Text style={s.bulletDot}>•</Text>
+              <Text style={s.bulletText}>
+                Scheduled Start Date   <Text style={s.bold}>{fmtDate(t.start_date)}</Text>
+              </Text>
+            </View>
+          ) : null}
+          {t.substantial_completion_date ? (
+            <View style={s.bulletRow}>
+              <Text style={s.bulletDot}>•</Text>
+              <Text style={s.bulletText}>
+                Substantial Completion   <Text style={s.bold}>{fmtDate(t.substantial_completion_date)}</Text>
+              </Text>
+            </View>
+          ) : null}
+          {t.final_completion_date ? (
+            <View style={s.bulletRow}>
+              <Text style={s.bulletDot}>•</Text>
+              <Text style={s.bulletText}>
+                Final Completion   <Text style={s.bold}>{fmtDate(t.final_completion_date)}</Text>
+              </Text>
+            </View>
+          ) : null}
+        </View>
+      ) : null}
       <Text style={[s.paraTight, { marginTop: 4 }]}>{t.disclaimer}</Text>
 
       <SectionBar letter="E" title="WARRANTIES" />
@@ -377,6 +406,7 @@ function SectionDEFGPage({ payload, logoUrl }) {
       <Text style={s.paraTight}>{w.materials_text}</Text>
 
       <SectionBar letter="F" title="PERMITS & COMPLIANCE" suffix="(Check the appropriate box to indicate responsibility.)" />
+      {perm.intro ? <Text style={s.paraTight}>{perm.intro}</Text> : null}
       <View style={s.checkboxRow}>
         <Checkbox checked={!!perm.contractor_responsible} />
         <Text style={s.paraTight}>SUNVIC CONTRACTORS LLC is responsible for obtaining all required permits necessary for the work.</Text>
@@ -424,7 +454,7 @@ function SectionHIJPage({ payload, logoUrl }) {
         })}
       </View>
 
-      <SectionBar letter="J" title="SINGNATURE" />
+      <SectionBar letter="J" title="SIGNATURE" />
       <Text style={s.paraTight}>{sig.intro?.split('\n')[0]}</Text>
       <Text style={s.paraTight}>{sig.intro?.split('\n').slice(1).join(' ')}</Text>
 

@@ -3,6 +3,7 @@
 
 import { z } from 'zod';
 import { CONTRACTOR, TAX } from '../config/business.js';
+import { DEFAULT_SCOPE_QTY } from '../templates/defaults.js';
 
 // ────────────────────────────────────────────────────────────────
 // Shared building blocks
@@ -18,7 +19,7 @@ export const LineItem = z.object({
 export const ScopeTask = z.object({
   task: z.string().default(''),
   description: z.array(z.string()).default([]),
-  qty: z.string().default('Lump Sump'),
+  qty: z.string().default(DEFAULT_SCOPE_QTY),
   unit_price_cents: z.number().nonnegative().default(0),
   amount_cents: z.number().nonnegative().default(0),
 });
