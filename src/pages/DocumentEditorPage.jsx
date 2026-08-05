@@ -253,7 +253,7 @@ export function DocumentEditorPage() {
     ? <ContractFormEditor doc={doc} onSave={saveField} onToggleLock={toggleLock} section={section} />
     : <InvoiceFormEditor doc={doc} onSave={saveField} onToggleLock={toggleLock} section={section} />);
   const renderLegal = (section) => (
-    <LegalEditor doc={doc} onSave={saveField} onToggleLock={toggleLock} section={section} />
+    <LegalEditor doc={doc} onSave={saveField} section={section} />
   );
   const formPanel = renderForm(null);
   const legalPanel = renderLegal(null);
