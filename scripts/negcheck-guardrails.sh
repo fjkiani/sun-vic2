@@ -13,6 +13,14 @@ cd "$(dirname "$0")/.."
 
 SRC=packages/validation/guardrails.js
 BASE_SHA=$(git rev-parse HEAD)
+
+# This script mutates $SRC and restores it from HEAD. If $SRC has uncommitted work, that
+# restore silently destroys it — which happened once during the iteration-6 merge and cost
+# a rounding fix. Refuse to run instead.
+if ! git diff --quiet -- "$SRC" || ! git diff --cached --quiet -- "$SRC"; then
+  echo "refusing to run: $SRC has uncommitted changes that the restore step would discard" >&2
+  exit 2
+fi
 PASSES=0
 FAILS=0
 

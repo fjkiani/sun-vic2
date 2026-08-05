@@ -12,7 +12,10 @@
 const SCALE = 100;
 
 export function scheduleSumHundredths(schedule) {
-  return (schedule || []).reduce((a, r) => a + Math.round((Number(r?.percent) || 0) * SCALE), 0);
+  // Round the total, not each row. Row-by-row rounding rejects [33.333, 33.333, 33.334],
+  // which is exactly 100. See packages/validation/guardrails.js for the full note.
+  const raw = (schedule || []).reduce((a, r) => a + (Number(r?.percent) || 0), 0);
+  return Math.round(raw * SCALE);
 }
 
 export function scheduleSum(schedule) {

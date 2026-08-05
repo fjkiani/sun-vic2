@@ -77,6 +77,12 @@ for (const [pcts, expectOk, label] of [
   [[50, 50], true, '50+50 accepted'],
   [[50, 49.99], false, '99.99 rejected (just outside tolerance)'],
   [[33.33, 33.33, 33.34], true, 'thirds accepted'],
+  // Rounding the total, not each row. Both of these are exactly 100; rounding row-by-row
+  // reports them as 99.99 and 100.02 respectively and rejects both.
+  [[33.333, 33.333, 33.334], true, 'thirds at 3dp summing to exactly 100 accepted'],
+  [[16.666, 16.667, 16.667, 16.667, 16.667, 16.666], true, 'six-way 3dp split summing to exactly 100 accepted'],
+  [[100.005], false, '100.005 rounds to 100.01 and is rejected'],
+  [[99.995], true, '99.995 rounds to 100.00 and is accepted'],
 ]) {
   const issues = scheduleIssues({ payment: { schedule: sched(...pcts) } }, 'contract');
   const balanced = !issues.some((i) => i.code === 'schedule_unbalanced');

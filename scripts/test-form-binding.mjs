@@ -142,7 +142,15 @@ eq('standard Sunvic schedule sums to 100', scheduleSum(sunvic), 100);
 ok('standard schedule is balanced', scheduleBalanced(sunvic));
 ok('99.9% is not balanced', !scheduleBalanced([{ percent: 99.9 }]));
 ok('100.1% is not balanced', !scheduleBalanced([{ percent: 100.1 }]));
-ok('100.005% is within tolerance', scheduleBalanced([{ percent: 100.005 }]));
+// Sub-hundredth inputs are rounded to the precision the schedule is stored at, and the
+// verdict always matches the percentage the UI displays.
+ok('100.005% rounds to 100.01% and is rejected', !scheduleBalanced([{ percent: 100.005 }]));
+ok('99.995% rounds to 100.00% and is accepted', scheduleBalanced([{ percent: 99.995 }]));
+// Rounding the total rather than each row: both of these are exactly 100.
+ok('thirds at 3dp summing to exactly 100 are accepted',
+  scheduleBalanced([{ percent: 33.333 }, { percent: 33.333 }, { percent: 33.334 }]));
+ok('six-way 3dp split summing to exactly 100 is accepted',
+  scheduleBalanced([16.666, 16.667, 16.667, 16.667, 16.667, 16.666].map((percent) => ({ percent }))));
 eq('empty schedule sums to 0', scheduleSum([]), 0);
 eq('null schedule sums to 0', scheduleSum(null), 0);
 eq('non-numeric percents are ignored', scheduleSum([{ percent: 'x' }, { percent: 50 }]), 50);
