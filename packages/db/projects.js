@@ -11,9 +11,12 @@ export async function listProjects(userId, opts = {}) {
   const svc = serviceClient();
   let q = svc
     .from('projects')
-    .select('id, name, homeowner_name, homeowner_email, property_address, status, contract_total_cents, created_at, updated_at')
+    .select('id, name, homeowner_name, homeowner_email, property_address, status, contract_total_cents, created_at, updated_at, deleted_at')
     .eq('created_by', userId)
     .order('updated_at', { ascending: false });
+  // Trash: by default hide trashed projects; opts.trashed returns only the Trash.
+  if (opts.trashed) q = q.not('deleted_at', 'is', null);
+  else q = q.is('deleted_at', null);
   if (opts.status) q = q.eq('status', opts.status);
   if (opts.q) q = q.or(`name.ilike.%${opts.q}%,homeowner_name.ilike.%${opts.q}%,property_address.ilike.%${opts.q}%`);
   const { data, error } = await q.limit(opts.limit || 200);

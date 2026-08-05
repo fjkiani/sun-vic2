@@ -43,7 +43,9 @@ export const api = {
     const headers = opts.expectedUpdatedAt ? { 'If-Match': opts.expectedUpdatedAt } : undefined;
     return request('PATCH', `/api/documents/${id}`, body, headers);
   },
-  deleteDocument: (id) => request('DELETE', `/api/documents/${id}`),
+  deleteDocument: (id, opts = {}) =>
+    request('DELETE', `/api/documents/${id}${opts.permanent ? '?permanent=1' : ''}`),
+  restoreDocument: (id) => request('POST', `/api/documents/${id}`, { action: 'restore' }),
   generatePdf:    (id) => request('POST', `/api/documents/${id}/pdf`),
   emailDocument:  (id, body) => request('POST', `/api/documents/${id}/email`, body),
 
@@ -67,6 +69,9 @@ export const api = {
   getProject:        (id) => request('GET', `/api/projects/${id}`),
   createProject:     (body) => request('POST', '/api/projects', body),
   updateProject:     (id, body) => request('PATCH', `/api/projects/${id}`, body),
+  deleteProject:     (id, opts = {}) =>
+    request('DELETE', `/api/projects/${id}${opts.permanent ? '?permanent=1' : ''}`),
+  restoreProject:    (id) => request('POST', `/api/projects/${id}`, { action: 'restore' }),
   getProjectSummary: (id) => request('GET', `/api/projects/${id}/summary`),
 
   // Chat threads (agentic surface)
