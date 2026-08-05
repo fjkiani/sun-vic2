@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { supabase, MOCK_AUTH } from '../lib/supabase.js';
 import { ModelPickerDropdown } from './ModelPickerDropdown.jsx';
+import { BottomTabBar } from './BottomTabBar.jsx';
 
 // Mobile-first shell. Below `md` the header collapses to a hamburger; nav links,
 // model picker, and settings/sign-out move into a slide-in drawer.
@@ -14,7 +15,7 @@ export function AppShell() {
   useEffect(() => { setDrawerOpen(false); }, [loc.pathname]);
 
   async function signOut() {
-    if (MOCK_AUTH) { nav('/chat', { replace: true }); return; } // no-op under mock auth
+    if (MOCK_AUTH) { nav('/copilot', { replace: true }); return; } // no-op under mock auth
     await supabase.auth.signOut();
     nav('/sign-in', { replace: true });
   }
@@ -27,7 +28,7 @@ export function AppShell() {
       <header className="bg-white border-b border-neutral-200 shadow-sm sticky top-0 z-30">
         <div className="max-w-7xl mx-auto px-3 md:px-4 py-2.5 md:py-3 flex items-center justify-between gap-2">
           {/* Left: logo */}
-          <NavLink to="/chat" className="flex items-center gap-2 flex-shrink-0 min-h-[44px]">
+          <NavLink to="/copilot" className="flex items-center gap-2 flex-shrink-0 min-h-[44px]">
             <div className="w-9 h-9 rounded-lg bg-sunvic-500 text-white grid place-items-center font-bold">S</div>
             <div className="hidden sm:block">
               <div className="text-base md:text-lg font-bold text-neutral-900 leading-tight">Sunvic</div>
@@ -37,9 +38,9 @@ export function AppShell() {
 
           {/* Desktop nav (md+) */}
           <div className="hidden md:flex items-center gap-4">
-            <NavLink to="/chat" className={navClass}>Chat</NavLink>
-            <NavLink to="/projects" className={navClass}>Projects</NavLink>
-            <NavLink to="/documents" className={navClass}>Documents</NavLink>
+            <NavLink to="/copilot" className={navClass}>Copilot</NavLink>
+            <NavLink to="/work" className={navClass}>Work</NavLink>
+            <NavLink to="/activity" className={navClass}>Activity</NavLink>
             <ModelPickerDropdown />
             <NavLink to="/settings" className={navClass}>Settings</NavLink>
             <button onClick={signOut} className="text-sm text-neutral-600 hover:text-neutral-900">Sign out</button>
@@ -79,9 +80,9 @@ export function AppShell() {
               </button>
             </div>
             <nav className="p-4 space-y-1 flex-1">
-              <MobileNavLink to="/chat" label="Chat" />
-              <MobileNavLink to="/projects" label="Projects" />
-              <MobileNavLink to="/documents" label="Documents" />
+              <MobileNavLink to="/copilot" label="Copilot" />
+              <MobileNavLink to="/work" label="Work" />
+              <MobileNavLink to="/activity" label="Activity" />
               <MobileNavLink to="/settings" label="Settings" />
             </nav>
             <div className="p-4 border-t border-neutral-200 space-y-3">
@@ -97,9 +98,12 @@ export function AppShell() {
         </div>
       )}
 
-      <main className="flex-1 max-w-7xl mx-auto w-full px-3 md:px-4 pt-4 md:pt-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] md:pb-6">
+      <main className="flex-1 max-w-7xl mx-auto w-full px-3 md:px-4 pt-4 md:pt-6 pb-[calc(4.5rem+env(safe-area-inset-bottom))] md:pb-6">
         <Outlet />
       </main>
+
+      {/* Mobile primary navigation */}
+      <BottomTabBar />
     </div>
   );
 }
