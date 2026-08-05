@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api.js';
@@ -10,6 +10,8 @@ import { LegalEditor } from '../components/editors/LegalEditor.jsx';
 import { DocumentMirror } from '../components/DocumentMirror.jsx';
 import { ColumnHeader } from '../components/editor/ColumnHeader.jsx';
 import { ColumnResizer } from '../components/editor/ColumnResizer.jsx';
+import { SegmentedTabs } from '../components/SegmentedTabs.jsx';
+import { DocAiTab } from '../components/doc/DocAiTab.jsx';
 import { useDebouncedSave } from '../hooks/useDebouncedSave.js';
 
 function fmtUSD(cents) {
@@ -69,12 +71,11 @@ export function DocumentEditorPage() {
   const isMobile = useIsMobile();
 
   const [doc, setDoc] = useState(null);
-  const [tab, setTab] = useState('editor'); // editor|legal|actions (inside form panel)
+  // Flat top-level tab. On mobile the AI tab is primary (default). No nested tabs.
+  // ai | form | legal | preview | pdf
+  const [tab, setTab] = useState('ai');
   const [emailTo, setEmailTo] = useState('');
   const [busyOp, setBusyOp] = useState(null);
-
-  // Which of the 4 columns is active on mobile: chat|form|mirror|pdf
-  const [mobilePane, setMobilePane] = useState('form');
 
   const [layout, setLayout] = useState(() => loadLayout() || DEFAULT_LAYOUT);
   const containerRef = useRef(null);
@@ -141,6 +142,12 @@ export function DocumentEditorPage() {
     });
   }, [queueSave]);
 
+  // When the agent updates the doc, refresh revisions so the change summary stays current.
+  const handleAgentUpdate = useCallback((d) => {
+    setDoc((c) => (c ? { ...c, ...d } : d));
+    refetch();
+  }, [refetch]);
+
   async function runGeneratePdf() {
     if (!doc) return;
     await flushNow();
@@ -150,13 +157,15 @@ export function DocumentEditorPage() {
       window.open(result.signed_url, '_blank');
     } catch (e) { alert(`PDF gen failed: ${e.message || e}`); } finally { setBusyOp(null); }
   }
-  async function runEmail() {
-    if (!doc || !emailTo.trim()) return;
+  async function runEmail(to) {
+    if (!doc) return;
+    const recipient = (to ?? emailTo).trim() || doc.client_email;
+    if (!recipient) { setTab('form'); return; } // need an email — send user to the form
     await flushNow();
     setBusyOp('email');
     try {
-      await api.emailDocument(doc.id, { to: emailTo.trim() });
-      alert(`Sent to ${emailTo.trim()}`);
+      await api.emailDocument(doc.id, { to: recipient });
+      alert(`Sent to ${recipient}`);
       refetch();
     } catch (e) { alert(`Email failed: ${e.message || e}`); } finally { setBusyOp(null); }
   }
@@ -220,59 +229,13 @@ export function DocumentEditorPage() {
   if (!doc) return null;
 
   const total = doc.total_cents;
+  const revisions = data?.revisions || [];
 
-  // ─── Shared sub-panels (used both mobile and desktop) ────────
-  const formPanel = (
-    <>
-      {tab === 'editor' && (doc.template === 'contract'
-        ? <ContractFormEditor doc={doc} onSave={saveField} onToggleLock={toggleLock} />
-        : <InvoiceFormEditor doc={doc} onSave={saveField} onToggleLock={toggleLock} />)}
-      {tab === 'legal' && <LegalEditor doc={doc} onSave={saveField} onToggleLock={toggleLock} />}
-      {tab === 'actions' && (
-        <div className="space-y-3 text-xs">
-          <div>
-            <div className="text-xs text-neutral-500 uppercase font-semibold mb-1">Status</div>
-            <div className="flex flex-wrap gap-1">
-              {['draft','sent','signed','paid','overdue','void'].map((s) => (
-                <button key={s} onClick={() => setStatus(s)}
-                  className={`text-xs px-2 py-1 rounded border ${doc.status === s ? 'bg-sunvic-500 text-white border-sunvic-500' : 'bg-white border-neutral-300 text-neutral-700 hover:bg-neutral-50'}`}>
-                  {s}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div>
-            <div className="text-xs text-neutral-500 uppercase font-semibold mb-1">Generate PDF</div>
-            <button onClick={runGeneratePdf} disabled={busyOp === 'pdf'}
-              className="w-full py-2 rounded-md bg-sunvic-500 hover:bg-sunvic-600 text-white text-sm font-semibold disabled:opacity-60">
-              {busyOp === 'pdf' ? 'Generating…' : 'Generate & download PDF'}
-            </button>
-          </div>
-          <div>
-            <div className="text-xs text-neutral-500 uppercase font-semibold mb-1">Email to</div>
-            <div className="flex gap-2">
-              <input type="email" placeholder={doc.client_email || 'client@example.com'} value={emailTo} onChange={(e) => setEmailTo(e.target.value)}
-                className="flex-1 rounded-md border border-neutral-300 px-2 py-1.5 text-sm" />
-              <button onClick={runEmail} disabled={busyOp === 'email' || !emailTo.trim()}
-                className="px-3 py-1.5 rounded-md bg-neutral-900 text-white text-sm disabled:opacity-60">
-                Send
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </>
-  );
-  const formTabs = (
-    <div className="flex gap-0.5 text-[10px]">
-      {['editor', 'legal', 'actions'].map((t) => (
-        <button key={t} onClick={() => setTab(t)}
-          className={`px-1.5 py-0.5 rounded ${tab === t ? 'bg-sunvic-500 text-white' : 'text-neutral-500 hover:bg-neutral-100'}`}>
-          {t.toUpperCase()}
-        </button>
-      ))}
-    </div>
-  );
+  // ─── Shared sub-panels ─────────────────────────────────────
+  const formPanel = doc.template === 'contract'
+    ? <ContractFormEditor doc={doc} onSave={saveField} onToggleLock={toggleLock} />
+    : <InvoiceFormEditor doc={doc} onSave={saveField} onToggleLock={toggleLock} />;
+  const legalPanel = <LegalEditor doc={doc} onSave={saveField} onToggleLock={toggleLock} />;
   const mirrorPanel = (
     <DocumentMirror
       ref={midScrollRef}
@@ -296,14 +259,8 @@ export function DocumentEditorPage() {
             → Project
           </Link>
         )}
-        {doc.thread_id && (
-          <Link to={`/chat/${doc.thread_id}`} className="text-xs text-sunvic-700 hover:underline hidden md:inline">
-            → Chat
-          </Link>
-        )}
       </div>
       <div className="flex items-center gap-2 md:gap-3 flex-shrink-0">
-        {/* Scroll-sync toggle only on desktop */}
         <label className="hidden md:flex items-center gap-1 text-xs text-neutral-600 cursor-pointer" title="Sync scroll between form editor and mirror">
           <input type="checkbox" checked={layout.scrollSync}
             onChange={(e) => setLayout((l) => ({ ...l, scrollSync: e.target.checked }))} />
@@ -334,57 +291,45 @@ export function DocumentEditorPage() {
     </div>
   );
 
-  // ─── Mobile layout (< md) ─────────────────────────────
+  // ─── Mobile layout (< md): AI-first, flat review tabs ──────
   if (isMobile) {
+    const TABS = [
+      { id: 'ai', label: 'AI' },
+      { id: 'form', label: 'Form' },
+      { id: 'legal', label: 'Legal' },
+      { id: 'preview', label: 'Preview' },
+      { id: 'pdf', label: 'PDF' },
+    ];
     return (
-      <div className="flex flex-col h-[calc(100vh-6rem)]">
+      <div className="flex flex-col h-[calc(100vh-9.5rem)]">
         {statusBar}
         {conflictBanner}
 
-        <div className="flex-1 min-h-0 overflow-hidden border-x border-neutral-200 bg-white">
-          {mobilePane === 'form' && (
-            <div className="h-full flex flex-col">
-              <div className="px-3 py-2 border-b border-neutral-200 flex items-center justify-between bg-neutral-50">
-                <div className="text-xs font-semibold text-neutral-600">Form editor</div>
-                {formTabs}
-              </div>
-              <div className="flex-1 overflow-y-auto p-3">{formPanel}</div>
-            </div>
-          )}
-          {mobilePane === 'mirror' && (
-            <div className="h-full overflow-hidden">{mirrorPanel}</div>
-          )}
-          {mobilePane === 'pdf' && (
-            <div className="h-full bg-neutral-800">{pdfPanel}</div>
-          )}
-          {mobilePane === 'chat' && (
-            <div className="h-full">
-              <AgentChatPanel document={doc} onDocumentUpdate={(d) => setDoc((c) => c ? { ...c, ...d } : d)} />
-            </div>
-          )}
+        <div className="flex-shrink-0 px-2 pt-2 bg-white border-x border-neutral-200">
+          <SegmentedTabs tabs={TABS} value={tab} onChange={setTab} />
         </div>
 
-        {/* Bottom tab bar */}
-        <div className="flex-shrink-0 flex border-x border-b border-neutral-200 rounded-b-xl bg-white">
-          {[
-            ['form', 'Form'],
-            ['mirror', 'Preview'],
-            ['pdf', 'PDF'],
-            ['chat', 'Chat'],
-          ].map(([id, label]) => (
-            <button key={id} onClick={() => setMobilePane(id)}
-              className={`flex-1 py-2 text-xs font-semibold ${
-                mobilePane === id ? 'bg-sunvic-500 text-white' : 'text-neutral-600'
-              }`}>
-              {label}
-            </button>
-          ))}
+        <div className="flex-1 min-h-0 overflow-hidden border-x border-b border-neutral-200 rounded-b-xl bg-white">
+          {tab === 'ai' && (
+            <DocAiTab
+              doc={doc}
+              revisions={revisions}
+              onDocumentUpdate={handleAgentUpdate}
+              onGeneratePdf={runGeneratePdf}
+              onEmail={() => runEmail()}
+              busyOp={busyOp}
+            />
+          )}
+          {tab === 'form' && <div className="h-full overflow-y-auto p-3">{formPanel}</div>}
+          {tab === 'legal' && <div className="h-full overflow-y-auto p-3">{legalPanel}</div>}
+          {tab === 'preview' && <div className="h-full overflow-hidden">{mirrorPanel}</div>}
+          {tab === 'pdf' && <div className="h-full bg-neutral-800">{pdfPanel}</div>}
         </div>
       </div>
     );
   }
 
-  // ─── Desktop layout (md+) ─────────────────────────────
+  // ─── Desktop layout (md+): AI panel + form + mirror + pdf ──
   const leftPct  = layout.leftCollapsed  ? 0 : layout.leftBasis;
   const midPct   = layout.midCollapsed   ? 0 : layout.midBasis;
   const rightPct = layout.rightCollapsed ? 0 : layout.rightBasis;
@@ -402,15 +347,14 @@ export function DocumentEditorPage() {
         <div style={leftStyle} className="flex flex-col bg-white overflow-hidden">
           <ColumnHeader
             title="Form editor"
-            subtitle={`${doc.template} · ${tab}`}
+            subtitle={doc.template}
             collapsed={layout.leftCollapsed}
             onToggleCollapse={() => setLayout((l) => ({ ...l, leftCollapsed: !l.leftCollapsed }))}
-          >
-            {!layout.leftCollapsed && formTabs}
-          </ColumnHeader>
+          />
           {!layout.leftCollapsed && (
             <div ref={leftScrollRef} className="flex-1 overflow-y-auto p-3 space-y-3">
               {formPanel}
+              <div className="pt-3 border-t border-neutral-200">{legalPanel}</div>
             </div>
           )}
         </div>
@@ -444,7 +388,7 @@ export function DocumentEditorPage() {
         </div>
       </div>
 
-      <AgentChatPanel document={doc} onDocumentUpdate={(d) => setDoc((c) => c ? { ...c, ...d } : d)} floating />
+      <AgentChatPanel document={doc} onDocumentUpdate={handleAgentUpdate} floating />
     </div>
   );
 }
