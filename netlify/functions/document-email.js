@@ -67,9 +67,36 @@ export const handler = async (event) => {
     html,
     attachments: [{ filename: `${doc.doc_number}.pdf`, content: pdfBuffer.toString('base64') }],
   });
-  if (sendResult.error) return json(502, { error: 'send_failed', detail: sendResult.error });
 
+  // Log every send attempt (success or failure) to the email activity log. Best-effort —
+  // a logging failure must never mask the actual send result.
+  async function logEmail(status, resendId, errDetail) {
+    try {
+      await svc.from('email_log').insert({
+        document_id: doc.id,
+        project_id: doc.project_id || null,
+        doc_number: doc.doc_number,
+        template: doc.template,
+        recipient: to,
+        subject,
+        status,
+        resend_id: resendId || null,
+        error: errDetail ? String(errDetail) : null,
+        created_by: user.id,
+      });
+    } catch (e) {
+      console.warn('[document-email] email_log insert failed:', e?.message || e);
+    }
+  }
+
+  if (sendResult.error) {
+    await logEmail('failed', null, sendResult.error?.message || sendResult.error);
+    return json(502, { error: 'send_failed', detail: sendResult.error });
+  }
+
+  const resendId = sendResult.data?.id || null;
+  await logEmail('sent', resendId, null);
   await svc.from('documents').update({ status: 'sent' }).eq('id', id);
 
-  return json(200, { sent: true, to, resend_id: sendResult.data?.id || null });
+  return json(200, { sent: true, to, resend_id: resendId });
 };

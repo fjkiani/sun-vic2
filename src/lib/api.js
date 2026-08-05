@@ -49,6 +49,12 @@ export const api = {
   generatePdf:    (id) => request('POST', `/api/documents/${id}/pdf`),
   emailDocument:  (id, body) => request('POST', `/api/documents/${id}/email`, body),
 
+  // Email activity log
+  listEmails:     (params = {}) => {
+    const qs = new URLSearchParams(params).toString();
+    return request('GET', `/api/emails${qs ? '?' + qs : ''}`);
+  },
+
   // Agent
   agentOneshot:   (body) => request('POST', '/api/agent/oneshot', body),
   agentChat:      (body) => request('POST', '/api/agent/chat', body),
