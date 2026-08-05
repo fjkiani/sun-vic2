@@ -12,7 +12,11 @@ import { ColumnHeader } from '../components/editor/ColumnHeader.jsx';
 import { ColumnResizer } from '../components/editor/ColumnResizer.jsx';
 import { SegmentedTabs } from '../components/SegmentedTabs.jsx';
 import { DocAiTab } from '../components/doc/DocAiTab.jsx';
+import { DocSubTabs } from '../components/doc/DocSubTabs.jsx';
+import { formTabsFor, LEGAL_TABS } from '../components/doc/docSections.js';
+import { DocAskBar } from '../components/agent/DocAskBar.jsx';
 import { useDebouncedSave } from '../hooks/useDebouncedSave.js';
+import { useFillHeight, bottomBarGap } from '../hooks/useFillHeight.js';
 
 function fmtUSD(cents) {
   return ((Number(cents) || 0) / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
@@ -74,8 +78,18 @@ export function DocumentEditorPage() {
   // Flat top-level tab. On mobile the AI tab is primary (default). No nested tabs.
   // ai | form | legal | preview | pdf
   const [tab, setTab] = useState('ai');
+  // Second level: which group of payload blocks the Form / Legal tab is showing.
+  // Kept per primary tab so switching Form -> Legal -> Form returns you where you were.
+  const [formSub, setFormSub] = useState('homeowner');
+  const [legalSub, setLegalSub] = useState('terms');
   const [emailTo, setEmailTo] = useState('');
   const [busyOp, setBusyOp] = useState(null);
+
+  // Replaces h-[calc(100vh-9.5rem)]. 100vh over-measures on iOS Safari (it is the height
+  // with the toolbar retracted), so the bottom of the pane sat behind the browser chrome.
+  // This measures the real visual viewport and re-measures when the keyboard opens.
+  const paneRef = useRef(null);
+  const paneHeight = useFillHeight(paneRef, { bottomGap: bottomBarGap() + 8, min: 320 });
 
   const [layout, setLayout] = useState(() => loadLayout() || DEFAULT_LAYOUT);
   const containerRef = useRef(null);
@@ -232,10 +246,17 @@ export function DocumentEditorPage() {
   const revisions = data?.revisions || [];
 
   // ─── Shared sub-panels ─────────────────────────────────────
-  const formPanel = doc.template === 'contract'
-    ? <ContractFormEditor doc={doc} onSave={saveField} onToggleLock={toggleLock} />
-    : <InvoiceFormEditor doc={doc} onSave={saveField} onToggleLock={toggleLock} />;
-  const legalPanel = <LegalEditor doc={doc} onSave={saveField} onToggleLock={toggleLock} />;
+  const formTabs = formTabsFor(doc.template);
+  // `section={null}` means "render every block" — that is what desktop passes, so the
+  // three-column power layout is unchanged by the mobile sub-tabs.
+  const renderForm = (section) => (doc.template === 'contract'
+    ? <ContractFormEditor doc={doc} onSave={saveField} onToggleLock={toggleLock} section={section} />
+    : <InvoiceFormEditor doc={doc} onSave={saveField} onToggleLock={toggleLock} section={section} />);
+  const renderLegal = (section) => (
+    <LegalEditor doc={doc} onSave={saveField} onToggleLock={toggleLock} section={section} />
+  );
+  const formPanel = renderForm(null);
+  const legalPanel = renderLegal(null);
   const mirrorPanel = (
     <DocumentMirror
       ref={midScrollRef}
@@ -249,32 +270,58 @@ export function DocumentEditorPage() {
   );
   const pdfPanel = <PDFPreview template={doc.template} payload={doc.payload} docNumber={doc.doc_number} />;
 
+  // Save state as words on desktop, as a coloured dot on phones — "Saved 10:32:15 AM"
+  // eats a third of a 390px header for information the user does not read.
+  const saveTone = saveError && !conflict ? 'bg-rose-500'
+    : conflict ? 'bg-amber-500'
+    : saving ? 'bg-sunvic-400 animate-pulse'
+    : 'bg-emerald-500';
+  const saveWords = saveError && !conflict ? 'Save failed'
+    : conflict ? 'Conflict'
+    : saving ? 'Saving…'
+    : lastSaved ? `Saved ${lastSaved.toLocaleTimeString()}`
+    : 'Auto-save on';
+
   const statusBar = (
-    <div className="flex-shrink-0 flex items-center justify-between px-3 py-2 bg-white border border-neutral-200 rounded-t-xl gap-2">
+    <div className="flex-shrink-0 flex items-center px-2 md:px-3 py-2 bg-white border border-neutral-200 rounded-t-xl gap-2">
+      <Link
+        to="/work"
+        aria-label="Back to Work"
+        className="md:hidden grid place-items-center w-9 h-9 -ml-1 rounded-lg text-neutral-500 active:bg-neutral-100 flex-shrink-0"
+      >
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+        </svg>
+      </Link>
+
       <div className="flex items-center gap-2 md:gap-3 min-w-0 flex-1">
-        <div className="font-mono text-sunvic-600 font-bold text-sm md:text-base truncate">{doc.doc_number}</div>
-        <div className="text-xs text-neutral-500 capitalize hidden sm:block">{doc.template} · {doc.status}</div>
+        <div className="min-w-0">
+          <div className="font-mono text-sunvic-600 font-bold text-sm md:text-base truncate leading-tight">{doc.doc_number}</div>
+          <div className="text-[10px] text-neutral-500 capitalize md:hidden leading-tight">{doc.template} · {doc.status}</div>
+        </div>
+        <div className="text-xs text-neutral-500 capitalize hidden md:block">{doc.template} · {doc.status}</div>
         {doc.project_id && (
           <Link to={`/projects/${doc.project_id}`} className="text-xs text-sunvic-700 hover:underline hidden md:inline">
             → Project
           </Link>
         )}
       </div>
+
       <div className="flex items-center gap-2 md:gap-3 flex-shrink-0">
         <label className="hidden md:flex items-center gap-1 text-xs text-neutral-600 cursor-pointer" title="Sync scroll between form editor and mirror">
           <input type="checkbox" checked={layout.scrollSync}
             onChange={(e) => setLayout((l) => ({ ...l, scrollSync: e.target.checked }))} />
           Scroll sync
         </label>
-        <div className="text-[10px] md:text-xs text-neutral-500 min-w-[80px] md:min-w-[120px] text-right">
-          {saveError && !conflict ? <span className="text-red-600">Save failed</span>
-            : conflict ? <span className="text-amber-600">Conflict</span>
-            : saving ? 'Saving…'
-            : lastSaved ? `Saved ${lastSaved.toLocaleTimeString()}`
-            : 'Auto-save on'}
-        </div>
+        <span
+          className={`md:hidden w-2 h-2 rounded-full ${saveTone}`}
+          role="status"
+          aria-label={saveWords}
+          title={saveWords}
+        />
+        <div className="hidden md:block text-xs text-neutral-500 min-w-[120px] text-right">{saveWords}</div>
         <div className="text-right">
-          <div className="text-[10px] text-neutral-500 uppercase hidden sm:block">Total</div>
+          <div className="text-[10px] text-neutral-500 uppercase hidden md:block">Total</div>
           <div className="font-mono font-bold text-sm">{fmtUSD(total)}</div>
         </div>
       </div>
@@ -300,8 +347,22 @@ export function DocumentEditorPage() {
       { id: 'preview', label: 'Preview' },
       { id: 'pdf', label: 'PDF' },
     ];
+    const subTabs = tab === 'form' ? formTabs : tab === 'legal' ? LEGAL_TABS : null;
+    const subValue = tab === 'form' ? formSub : legalSub;
+    const setSubValue = tab === 'form' ? setFormSub : setLegalSub;
+    const activeGroup = subTabs?.find((t) => t.id === subValue) || null;
+
+    // What the copilot should assume the user is looking at. Form sub-tab ids are already
+    // payload section names; legal groups cover several blocks, so we hand over the block
+    // list and let agentScope narrow it.
+    const askScope = tab === 'form'
+      ? { tab, section: subValue, blocks: activeGroup?.blocks }
+      : tab === 'legal'
+        ? { tab, section: activeGroup?.blocks?.length === 1 ? activeGroup.blocks[0] : undefined, blocks: activeGroup?.blocks }
+        : { tab };
+
     return (
-      <div className="flex flex-col h-[calc(100vh-9.5rem)]">
+      <div ref={paneRef} style={paneHeight ? { height: paneHeight } : undefined} className="flex flex-col">
         {statusBar}
         {conflictBanner}
 
@@ -309,7 +370,13 @@ export function DocumentEditorPage() {
           <SegmentedTabs tabs={TABS} value={tab} onChange={setTab} />
         </div>
 
-        <div className="flex-1 min-h-0 overflow-hidden border-x border-b border-neutral-200 rounded-b-xl bg-white">
+        {subTabs && (
+          <div className="flex-shrink-0 py-2 bg-white border-x border-neutral-200">
+            <DocSubTabs tabs={subTabs} value={subValue} onChange={setSubValue} />
+          </div>
+        )}
+
+        <div className="flex-1 min-h-0 overflow-hidden border-x border-neutral-200 bg-white">
           {tab === 'ai' && (
             <DocAiTab
               doc={doc}
@@ -320,10 +387,19 @@ export function DocumentEditorPage() {
               busyOp={busyOp}
             />
           )}
-          {tab === 'form' && <div className="h-full overflow-y-auto p-3">{formPanel}</div>}
-          {tab === 'legal' && <div className="h-full overflow-y-auto p-3">{legalPanel}</div>}
+          {tab === 'form' && <div className="h-full overflow-y-auto p-3 pb-6">{renderForm(subValue)}</div>}
+          {tab === 'legal' && <div className="h-full overflow-y-auto p-3 pb-6">{renderLegal(subValue)}</div>}
           {tab === 'preview' && <div className="h-full overflow-hidden">{mirrorPanel}</div>}
           {tab === 'pdf' && <div className="h-full bg-neutral-800">{pdfPanel}</div>}
+        </div>
+
+        {/* The copilot follows you. Before this, Form/Legal/Preview/PDF had no agent at
+            all on mobile — the floating panel is md-only and the chat lived in the AI
+            tab. The AI tab keeps the full conversation, so it does not need the bar. */}
+        <div className="flex-shrink-0 border-x border-b border-neutral-200 rounded-b-xl bg-white overflow-hidden">
+          {tab !== 'ai' && (
+            <DocAskBar document={doc} scope={askScope} onDocumentUpdate={handleAgentUpdate} />
+          )}
         </div>
       </div>
     );
@@ -339,7 +415,7 @@ export function DocumentEditorPage() {
   const rightStyle = layout.rightCollapsed ? { width: 40 } : { flexBasis: `${(rightPct / totalPct) * 100}%`, minWidth: 200 };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-8rem)]">
+    <div ref={paneRef} style={paneHeight ? { height: paneHeight } : undefined} className="flex flex-col">
       {statusBar}
       {conflictBanner}
 
