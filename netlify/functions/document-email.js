@@ -9,6 +9,7 @@ import { verifyUser, serviceClient } from '../../packages/db/supabase.js';
 import { pdfComponentFor } from '../../packages/templates/pdf/index.js';
 import { fmtUSD } from '../../packages/templates/format.js';
 import { CONTRACTOR, CONTRACTOR_PHONE_TEL, PUBLIC_SITE_URL } from '../../packages/config/business.js';
+import { preflight } from '../../packages/validation/guardrails.js';
 
 export const handler = async (event) => {
   const pre = handleOptions(event);
@@ -29,6 +30,14 @@ export const handler = async (event) => {
 
   const to = body.to || doc.client_email;
   if (!to) return json(400, { error: 'missing_recipient' });
+
+  // Always strict. Emailing is the irreversible step: once a homeowner has a contract with
+  // a blank property address or a schedule that bills 95% of the job, no amount of editing
+  // takes it back. This is the one place a hard stop is unambiguously worth the friction.
+  const check = preflight(doc, 'email', { recipient: to });
+  if (check.blocked) {
+    return json(409, { error: 'not_ready', detail: check.summary, issues: check.blocking });
+  }
 
   const Component = pdfComponentFor(doc.template);
   const logoUrl = PUBLIC_SITE_URL + '/logo/sunvic.png';

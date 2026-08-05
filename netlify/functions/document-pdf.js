@@ -4,9 +4,10 @@
 
 import React from 'react';
 import { renderToBuffer } from '@react-pdf/renderer';
-import { json, handleOptions, bearer } from './_shared/http.js';
+import { json, handleOptions, parseJson, bearer } from './_shared/http.js';
 import { verifyUser, serviceClient } from '../../packages/db/supabase.js';
 import { pdfComponentFor } from '../../packages/templates/pdf/index.js';
+import { preflight } from '../../packages/validation/guardrails.js';
 
 export const handler = async (event) => {
   const pre = handleOptions(event);
@@ -23,6 +24,16 @@ export const handler = async (event) => {
     .from('documents').select('*').eq('id', id).eq('created_by', user.id).maybeSingle();
   if (error) return json(500, { error: 'db_error', detail: error.message });
   if (!doc) return json(404, { error: 'not_found' });
+
+  // Preflight. Non-blocking by default: generating a PDF is also how you look at your own
+  // draft, and refusing that would make the Preview and PDF tabs useless for exactly the
+  // documents still being written. Callers about to put the file in front of a homeowner
+  // pass { strict: true } and get a hard stop naming the missing field.
+  const reqBody = parseJson(event) || {};
+  const check = preflight(doc, 'pdf', { strict: reqBody.strict === true });
+  if (check.blocked) {
+    return json(409, { error: 'not_ready', detail: check.summary, issues: check.blocking });
+  }
 
   // Render PDF to Buffer.
   const Component = pdfComponentFor(doc.template);
@@ -56,6 +67,9 @@ export const handler = async (event) => {
   }).eq('id', id);
 
   return json(200, {
+    // What is still wrong rides back even on a successful preview, so the PDF tab can warn
+    // "this would not be ready to send" without a second round trip.
+    preflight: { ok: check.issues.length === 0, issues: check.issues },
     signed_url: signed.signedUrl,
     object_key: objectKey,
     expires_at: new Date(Date.now() + 15 * 60 * 1000).toISOString(),

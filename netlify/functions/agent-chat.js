@@ -7,6 +7,9 @@ import { json, handleOptions, parseJson, bearer } from './_shared/http.js';
 import { verifyUser, serviceClient } from '../../packages/db/supabase.js';
 import { runChatTurn } from '../../packages/agent/chat.js';
 import { totalDollarsForContract, totalDollarsForInvoice } from './_shared/totals.js';
+import {
+  introducedIssues, writeGuard, statusTransitionGuard, validatePayload, SEVERITY,
+} from '../../packages/validation/guardrails.js';
 
 // Dispatch callback for generate_pdf / email_document tools — hits our own endpoints via internal http.
 async function makeDispatcher({ event, docRow }) {
@@ -93,6 +96,72 @@ export const handler = async (event) => {
 
   const updates = {};
   const payloadChanged = JSON.stringify(turn.updated_payload) !== JSON.stringify(revisionBefore);
+
+  // ── guardrails on the agent path ──────────────────────────
+  // The agent runs unattended inside a turn, so unlike a human save these checks block
+  // rather than warn. Two rules, both refusing to persist rather than persisting and
+  // apologising afterwards.
+  //
+  // 1. A document that has already gone out needs explicit confirmation. The agent may
+  //    propose the edit — the reply is still returned and shown — but the payload is not
+  //    written until the user confirms.
+  if (payloadChanged) {
+    const guard = writeGuard({
+      status: doc.status,
+      confirmed: body.confirm === true,
+      source: 'agent',
+      hasPayloadChange: true,
+    });
+    if (guard) {
+      return json(200, {
+        reply: turn.reply,
+        applied_tool_calls: [],
+        refused: turn.refused,
+        iterations: turn.iterations,
+        payload_changed: false,
+        confirm_required: {
+          code: guard.code,
+          status: doc.status,
+          message: guard.message,
+          proposed_tool_calls: turn.applied_tool_calls,
+        },
+        document: {
+          id: doc.id, template: doc.template, doc_number: doc.doc_number,
+          status: doc.status, total_cents: doc.total_cents,
+          payload: doc.payload, locks: doc.locks,
+        },
+      });
+    }
+
+    // 2. The agent may not *introduce* an arithmetic fault. Measured as a diff, not as
+    //    absolute validity: a document that already has a 95% schedule must stay editable,
+    //    including to repair the very thing that is wrong with it. Holding the agent to
+    //    absolute validity would deadlock exactly the documents that need fixing.
+    const introduced = introducedIssues(revisionBefore, turn.updated_payload, doc.template)
+      .filter((i) => i.severity === SEVERITY.ERROR);
+    if (introduced.length > 0) {
+      return json(200, {
+        reply: turn.reply,
+        applied_tool_calls: [],
+        refused: [
+          ...(turn.refused || []),
+          ...introduced.map((i) => ({ reason: i.code, field: i.field, detail: i.message })),
+        ],
+        iterations: turn.iterations,
+        payload_changed: false,
+        blocked_by_guardrails: {
+          message: `That change was not saved: ${introduced.map((i) => i.message).join(' ')}`,
+          issues: introduced,
+        },
+        document: {
+          id: doc.id, template: doc.template, doc_number: doc.doc_number,
+          status: doc.status, total_cents: doc.total_cents,
+          payload: doc.payload, locks: doc.locks,
+        },
+      });
+    }
+  }
+
   if (payloadChanged) {
     updates.payload = turn.updated_payload;
     const totalDollars = doc.template === 'contract'
@@ -107,8 +176,33 @@ export const handler = async (event) => {
       : (turn.updated_payload.bill_to?.recipient_email || doc.client_email);
     updates.updated_at = new Date().toISOString();
   }
+  // 3. The agent can mark a document sent/signed/paid via set_status. That is the moment
+  //    the numbers have to be right, so it gets the same preflight a human transition does.
   const setStatus = turn.applied_tool_calls.find((c) => c.tool === 'set_status');
-  if (setStatus) updates.status = setStatus.args.status;
+  if (setStatus) {
+    const tGuard = statusTransitionGuard({
+      from: doc.status,
+      to: setStatus.args.status,
+      payload: turn.updated_payload,
+      template: doc.template,
+    });
+    if (tGuard) {
+      return json(200, {
+        reply: turn.reply,
+        applied_tool_calls: [],
+        refused: [...(turn.refused || []), { reason: tGuard.code, detail: tGuard.message }],
+        iterations: turn.iterations,
+        payload_changed: false,
+        blocked_by_guardrails: { message: tGuard.message, issues: tGuard.issues },
+        document: {
+          id: doc.id, template: doc.template, doc_number: doc.doc_number,
+          status: doc.status, total_cents: doc.total_cents,
+          payload: doc.payload, locks: doc.locks,
+        },
+      });
+    }
+    updates.status = setStatus.args.status;
+  }
 
   if (Object.keys(updates).length > 0) {
     const { error: updErr } = await svc.from('documents').update(updates).eq('id', doc.id);
@@ -148,6 +242,7 @@ export const handler = async (event) => {
     refused: turn.refused,
     iterations: turn.iterations,
     payload_changed: payloadChanged,
+    validation: validatePayload(turn.updated_payload, doc.template),
     document: {
       id: doc.id,
       template: doc.template,

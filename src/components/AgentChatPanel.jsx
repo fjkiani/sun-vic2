@@ -104,7 +104,7 @@ export function AgentChatPanel({ document, onDocumentUpdate, floating = false })
     return (
       <button
         onClick={() => setOpen(true)}
-        className="hidden md:flex fixed bottom-4 right-4 z-40 rounded-full bg-sunvic-500 hover:bg-sunvic-600 text-white w-14 h-14 shadow-lg items-center justify-center text-2xl"
+        className="flex fixed bottom-20 right-4 md:bottom-4 z-40 rounded-full bg-sunvic-500 hover:bg-sunvic-600 text-white w-14 h-14 shadow-lg items-center justify-center text-2xl"
         aria-label="Open agent chat"
       >
         💬
@@ -112,7 +112,7 @@ export function AgentChatPanel({ document, onDocumentUpdate, floating = false })
     );
   }
   return (
-    <div className="hidden md:block fixed bottom-4 right-4 z-40 w-96 h-[600px] max-h-[85vh]">
+    <div className="fixed inset-x-2 bottom-2 top-16 z-40 md:inset-x-auto md:top-auto md:bottom-4 md:right-4 md:w-96 md:h-[600px] md:max-h-[85vh]">
       {panelContent}
     </div>
   );
