@@ -81,7 +81,7 @@ export function AgentChatPanel({ document, onDocumentUpdate, floating = false })
       <div className="p-3 border-t border-neutral-200 bg-white rounded-b-xl">
         <div className="flex gap-2">
           <input
-            className="flex-1 rounded-md border border-neutral-300 px-3 py-2 text-sm focus:ring-2 focus:ring-sunvic-500 focus:outline-none"
+            className="flex-1 min-h-[44px] rounded-md border border-neutral-300 px-3 py-2 text-sm focus:ring-2 focus:ring-sunvic-500 focus:outline-none"
             placeholder="Message the agent…"
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -89,7 +89,7 @@ export function AgentChatPanel({ document, onDocumentUpdate, floating = false })
             disabled={busy}
           />
           <button onClick={send} disabled={busy || !input.trim()}
-            className="px-4 py-2 rounded-md bg-sunvic-500 hover:bg-sunvic-600 text-white text-sm font-semibold disabled:opacity-50">
+            className="px-4 min-h-[44px] rounded-md bg-sunvic-500 hover:bg-sunvic-600 text-white text-sm font-semibold disabled:opacity-50">
             Send
           </button>
         </div>

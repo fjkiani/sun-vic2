@@ -23,7 +23,7 @@ export function WorkFilters({ type, onType, status, onStatus, q, onQ }) {
           <div className="flex flex-wrap gap-1.5 flex-1">
             <button
               onClick={() => onStatus('')}
-              className={`min-h-[36px] px-3 rounded-full text-xs font-medium border ${
+              className={`min-h-[44px] px-3 rounded-full text-xs font-medium border ${
                 status === '' ? 'bg-sunvic-500 text-white border-sunvic-500' : 'bg-white text-neutral-600 border-neutral-300'
               }`}
             >
@@ -33,7 +33,7 @@ export function WorkFilters({ type, onType, status, onStatus, q, onQ }) {
               <button
                 key={s}
                 onClick={() => onStatus(status === s ? '' : s)}
-                className={`min-h-[36px] px-3 rounded-full text-xs font-medium border capitalize ${
+                className={`min-h-[44px] px-3 rounded-full text-xs font-medium border capitalize ${
                   status === s ? 'bg-sunvic-500 text-white border-sunvic-500' : 'bg-white text-neutral-600 border-neutral-300'
                 }`}
               >
@@ -45,7 +45,7 @@ export function WorkFilters({ type, onType, status, onStatus, q, onQ }) {
             value={q}
             onChange={(e) => onQ(e.target.value)}
             placeholder="Search…"
-            className="w-full sm:w-48 rounded-lg border border-neutral-300 px-3 min-h-[40px] text-sm focus:outline-none focus:ring-2 focus:ring-sunvic-500"
+            className="w-full sm:w-48 rounded-lg border border-neutral-300 px-3 min-h-[44px] text-sm focus:outline-none focus:ring-2 focus:ring-sunvic-500"
           />
         </div>
       )}

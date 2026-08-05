@@ -73,12 +73,12 @@ export function ChatHomePage() {
             onChange={(e) => setPrompt(e.target.value)}
             disabled={starting}
             placeholder="e.g. contract for a kitchen reno at 12 Maple St, homeowner Jane Smith, $65k, starts July 15…"
-            className="flex-1 rounded-md px-3 py-2.5 md:py-3 text-sm text-neutral-900 placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-white"
+            className="flex-1 min-h-[44px] rounded-md px-3 py-2.5 md:py-3 text-sm text-neutral-900 placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-white"
           />
           <button
             type="submit"
             disabled={starting || !prompt.trim()}
-            className="px-4 py-2.5 md:py-3 rounded-md bg-white text-sunvic-700 font-semibold text-sm disabled:opacity-60"
+            className="px-4 min-h-[44px] rounded-md bg-white text-sunvic-700 font-semibold text-sm disabled:opacity-60"
           >
             {starting ? 'Starting…' : 'Start'}
           </button>

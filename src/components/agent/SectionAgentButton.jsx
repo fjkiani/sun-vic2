@@ -21,7 +21,7 @@ export function SectionAgentButton({ tab, section, blocks, label, prefill = '', 
         e.stopPropagation();
         focusSection({ tab, section, blocks: blocks || [section], label, prefill });
       }}
-      className={`flex-shrink-0 w-9 h-9 rounded-full border border-neutral-200 bg-white text-neutral-500 flex items-center justify-center active:bg-neutral-100 ${className}`}
+      className={`flex-shrink-0 w-11 h-11 rounded-full border border-neutral-200 bg-white text-neutral-500 flex items-center justify-center active:bg-neutral-100 ${className}`}
     >
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         <path d="M12 3l1.9 4.9L19 9.8l-4.1 2.4L15.6 17 12 14.4 8.4 17l.7-4.8L5 9.8l5.1-1.9z" />

@@ -19,7 +19,7 @@ function LockChip({ locked, onToggle }) {
     <button
       type="button"
       onClick={(e) => { e.stopPropagation(); onToggle(); }}
-      className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium min-h-[32px] ${
+      className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium min-h-[44px] ${
         locked
           ? 'bg-neutral-200 text-neutral-700 active:bg-neutral-300'
           : 'bg-amber-100 text-amber-900 active:bg-amber-200'

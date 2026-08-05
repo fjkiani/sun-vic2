@@ -25,14 +25,14 @@ export function AgentChangeSummary({ doc, revisions, onGeneratePdf, onEmail, bus
         <button
           onClick={onGeneratePdf}
           disabled={busyOp === 'pdf'}
-          className="flex-1 min-h-[40px] rounded-lg bg-sunvic-500 hover:bg-sunvic-600 text-white text-sm font-semibold disabled:opacity-60"
+          className="flex-1 min-h-[44px] rounded-lg bg-sunvic-500 hover:bg-sunvic-600 text-white text-sm font-semibold disabled:opacity-60"
         >
           {busyOp === 'pdf' ? 'Generating…' : 'Generate PDF'}
         </button>
         <button
           onClick={onEmail}
           disabled={busyOp === 'email'}
-          className="flex-1 min-h-[40px] rounded-lg border border-sunvic-500 text-sunvic-700 text-sm font-semibold hover:bg-sunvic-100 disabled:opacity-60"
+          className="flex-1 min-h-[44px] rounded-lg border border-sunvic-500 text-sunvic-700 text-sm font-semibold hover:bg-sunvic-100 disabled:opacity-60"
         >
           {busyOp === 'email' ? 'Sending…' : 'Email'}
         </button>

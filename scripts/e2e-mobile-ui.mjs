@@ -75,18 +75,25 @@ async function zoomingInputs(page) {
   });
 }
 
-/** Any tap target smaller than ~40px is hard to hit on a phone. */
+/**
+ * Apple HIG says 44pt, Material says 48dp. This started at 32px, which is lenient enough
+ * to pass a screen that is genuinely fiddly on a phone: a sweep at the real threshold
+ * found 22 distinct targets between 32 and 43px, including the Work status filters, every
+ * per-section agent button, and the legal lock chip at 32px — the control this whole
+ * iteration is about. Held at 44 now that they are all fixed.
+ */
+const TAP_MIN = 44;
 async function smallTapTargets(page) {
-  return page.evaluate(() => {
+  return page.evaluate((min) => {
     const bad = [];
-    for (const el of document.querySelectorAll('button, a[href], [role="button"], input[type="checkbox"]')) {
+    for (const el of document.querySelectorAll('button, a[href], [role="button"], input, textarea, select')) {
       const r = el.getBoundingClientRect();
       if (r.width === 0 || r.height === 0) continue;         // hidden
       if (getComputedStyle(el).visibility === 'hidden') continue;
-      if (r.height < 32) bad.push(`${el.tagName.toLowerCase()} "${(el.textContent || '').trim().slice(0, 24)}" h=${Math.round(r.height)}`);
+      if (r.height < min) bad.push(`${el.tagName.toLowerCase()} "${(el.getAttribute('aria-label') || el.textContent || el.placeholder || '').trim().slice(0, 24)}" h=${Math.round(r.height)}`);
     }
-    return bad.slice(0, 6);
-  });
+    return [...new Set(bad)].slice(0, 8);
+  }, TAP_MIN);
 }
 
 const created = [];
@@ -145,7 +152,7 @@ async function main() {
     const { overflow, offenders } = await horizontalOverflow(page);
     ok(overflow <= 1, `${route} — no horizontal scroll`, `overflow ${overflow}px; ${offenders.join(' | ')}`);
     const small = await smallTapTargets(page);
-    ok(small.length === 0, `${route} — tap targets >= 32px`, small.join(' | '));
+    ok(small.length === 0, `${route} — tap targets >= ${TAP_MIN}px`, small.join(' | '));
     const zoom = await zoomingInputs(page);
     ok(zoom.length === 0, `${route} — no input under 16px, so iOS will not zoom on focus`, zoom.join(' | '));
   }
