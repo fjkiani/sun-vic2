@@ -1,5 +1,8 @@
 import { useCallback, useState } from 'react';
 import { useUndoToast } from '../ui/UndoSnackbar.jsx';
+import { GUARDED_DOC_STATUSES, isDocGuarded, isProjectGuarded } from './deletePolicy.js';
+
+export { GUARDED_DOC_STATUSES, isDocGuarded, isProjectGuarded };
 
 // Swipe-delete policy, in one place so the Work list, project dashboard and any future
 // list all behave identically (ITER6 plan, decision 2).
@@ -9,20 +12,6 @@ import { useUndoToast } from '../ui/UndoSnackbar.jsx';
 //
 // Both paths are soft deletes: Trash is always the recovery route. Swipe changes speed,
 // not reversibility.
-
-// A document is guarded once it has left the building.
-export const GUARDED_DOC_STATUSES = ['sent', 'signed', 'paid', 'overdue'];
-
-export function isDocGuarded(doc) {
-  return GUARDED_DOC_STATUSES.includes(String(doc?.status || '').toLowerCase());
-}
-
-// A project has no draft state, so we guard on whether money is attached to it.
-// An empty scratch project deletes instantly with undo; one carrying contract value
-// asks first.
-export function isProjectGuarded(project) {
-  return Number(project?.contract_total_cents || 0) > 0;
-}
 
 export function useSwipeDelete({ onChanged } = {}) {
   const toast = useUndoToast();

@@ -1,4 +1,5 @@
 import React, { useCallback, useRef, useState } from 'react';
+import { THRESHOLD, MAX_PULL, ENGAGE, resolveAxis, swipeOffset, swipeOutcome } from './swipeMath.js';
 
 // Swipe-to-delete built on native pointer events — deliberately no gesture dependency,
 // the main bundle is already ~1.9 MB.
@@ -13,9 +14,7 @@ import React, { useCallback, useRef, useState } from 'react';
 // `touch-action: pan-y` lets the browser own vertical panning natively (no jank) while
 // leaving horizontal movement to us.
 
-const THRESHOLD = 88;   // px of travel before the action arms
-const MAX_PULL = 132;   // px the row can travel before rubber-banding
-const ENGAGE = 10;      // px before we commit to an axis
+export { THRESHOLD, MAX_PULL, ENGAGE, resolveAxis, swipeOffset, swipeOutcome };
 
 export function SwipeableRow({
   children,
@@ -59,34 +58,34 @@ export function SwipeableRow({
     const ddy = e.clientY - startRef.current.y;
 
     if (!axisRef.current) {
-      if (Math.abs(ddx) < ENGAGE && Math.abs(ddy) < ENGAGE) return;
-      axisRef.current = Math.abs(ddx) > Math.abs(ddy) ? 'x' : 'y';
-      if (axisRef.current === 'x') {
+      const axis = resolveAxis(ddx, ddy);
+      if (!axis) return;
+      axisRef.current = axis;
+      if (axis === 'x') {
         try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* not fatal */ }
       }
     }
     if (axisRef.current !== 'x') return;
 
     // Left-swipe only. Past MAX_PULL the row resists so the gesture feels bounded.
-    const raw = Math.min(0, ddx);
-    const next = raw < -MAX_PULL ? -MAX_PULL + (raw + MAX_PULL) * 0.18 : raw;
-    setOffset(next);
+    setOffset(swipeOffset(ddx));
   };
 
   const finish = () => {
     if (disabled || !startRef.current) return;
-    const travelled = Math.abs(dxRef.current);
-    const wasHorizontal = axisRef.current === 'x';
-    if (wasHorizontal && travelled >= THRESHOLD) {
-      snapBack();
-      // Defer so the row is visually settled before the parent mutates or opens a sheet.
-      window.setTimeout(() => {
-        if (requireConfirm) onConfirmRequired?.();
-        else onAction?.();
-      }, 0);
-      return;
-    }
+    const outcome = swipeOutcome({
+      axis: axisRef.current,
+      travelled: dxRef.current,
+      requireConfirm,
+      disabled,
+    });
     snapBack();
+    if (outcome === 'none') return;
+    // Defer so the row is visually settled before the parent mutates or opens a sheet.
+    window.setTimeout(() => {
+      if (outcome === 'confirm') onConfirmRequired?.();
+      else onAction?.();
+    }, 0);
   };
 
   const armed = Math.abs(dx) >= THRESHOLD;
