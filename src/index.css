@@ -2,13 +2,38 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  /* Exposed so JS (useFillHeight/bottomBarGap) can read the iOS home-indicator inset. */
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
 html, body, #root {
   height: 100%;
 }
 body {
   font-family: 'Inter', 'Liberation Sans', system-ui, sans-serif;
   color: #111827;
+  /* Stop the whole page rubber-banding on iOS; individual panes still scroll. */
+  overscroll-behavior-y: none;
+  -webkit-tap-highlight-color: transparent;
 }
+
+/* iOS Safari zooms the viewport when a focused input's font-size is under 16px.
+   Every control in the app is therefore at least 16px on small screens. */
+@media (max-width: 767px) {
+  input, select, textarea {
+    font-size: 16px;
+  }
+}
+
+/* Momentum scrolling inside panes. */
+.overflow-y-auto, .overflow-x-auto {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Hide scrollbars on horizontal chip rows without losing scrollability. */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
 /* PDF preview iframe frame */
 .pdf-frame {
@@ -16,4 +41,21 @@ body {
   border-radius: 12px;
   background: white;
   box-shadow: 0 4px 20px rgba(15, 23, 42, 0.08);
+}
+
+/* Bottom-sheet motion. Kept in CSS so the sheet needs no animation dependency. */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes sheetUp {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
