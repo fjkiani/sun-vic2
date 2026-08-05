@@ -67,7 +67,8 @@ export function NewDocumentPage() {
         <div className="flex flex-wrap items-center gap-3">
           <label className="text-sm flex items-center gap-2">
             <span className="text-neutral-500">Template hint:</span>
-            <select value={templateHint} onChange={(e) => setTemplateHint(e.target.value)} className="rounded-md border border-neutral-300 px-2 py-1 text-sm">
+            {/* Measured at h=28 on a 390px viewport — the smallest tap target in the app. */}
+            <select value={templateHint} onChange={(e) => setTemplateHint(e.target.value)} className="rounded-md border border-neutral-300 px-2 py-1 text-sm min-h-[44px]">
               <option value="">Let the agent decide</option>
               <option value="contract">Contract</option>
               <option value="invoice">Invoice</option>

@@ -28,11 +28,20 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
-/* iOS Safari zooms the viewport when a focused input's font-size is under 16px.
-   Every control in the app is therefore at least 16px on small screens. */
+/* iOS Safari zooms the viewport when a focused input's font-size is under 16px, and does
+   not zoom back out — the user is left pinching to recover.
+   
+   This rule existed and was silently doing nothing. `input, select, textarea` has element
+   specificity (0,0,1); Tailwind's `.text-sm` is a class (0,1,0) and wins no matter where
+   it sits in the sheet. Measured on production at 390px: 10 controls still computed to
+   14px across /chat, /documents/new, /settings and the editor ask bar. Raising specificity
+   cannot beat a class without a hack, so !important is the honest tool here — it is scoped
+   to small screens and to form controls whose size is driven by font-size. */
 @media (max-width: 767px) {
-  input, select, textarea {
-    font-size: 16px;
+  input:not([type='checkbox']):not([type='radio']),
+  select,
+  textarea {
+    font-size: 16px !important;
   }
 }
 

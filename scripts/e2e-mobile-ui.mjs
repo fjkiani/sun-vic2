@@ -55,6 +55,26 @@ async function horizontalOverflow(page) {
   });
 }
 
+/**
+ * iOS Safari zooms the whole viewport when a focused control has font-size < 16px, and
+ * never zooms back out. It is invisible in headless Chromium, so it has to be asserted
+ * from computed style. index.css carried the correct rule for months while Tailwind's
+ * `.text-sm` class quietly outranked it — 10 controls still computed to 14px.
+ */
+async function zoomingInputs(page) {
+  return page.evaluate(() => {
+    const bad = [];
+    for (const el of document.querySelectorAll('input, textarea, select')) {
+      if (/^(checkbox|radio|hidden)$/.test(el.type || '')) continue;
+      const r = el.getBoundingClientRect();
+      if (r.width === 0 || r.height === 0) continue;
+      const fs = parseFloat(getComputedStyle(el).fontSize);
+      if (fs < 16) bad.push(`${el.tagName.toLowerCase()} "${(el.getAttribute('aria-label') || el.placeholder || '').slice(0, 24)}" ${fs}px`);
+    }
+    return [...new Set(bad)].slice(0, 6);
+  });
+}
+
 /** Any tap target smaller than ~40px is hard to hit on a phone. */
 async function smallTapTargets(page) {
   return page.evaluate(() => {
@@ -126,6 +146,8 @@ async function main() {
     ok(overflow <= 1, `${route} — no horizontal scroll`, `overflow ${overflow}px; ${offenders.join(' | ')}`);
     const small = await smallTapTargets(page);
     ok(small.length === 0, `${route} — tap targets >= 32px`, small.join(' | '));
+    const zoom = await zoomingInputs(page);
+    ok(zoom.length === 0, `${route} — no input under 16px, so iOS will not zoom on focus`, zoom.join(' | '));
   }
 
   // ── document editor: sub-tabs and real pane height ───────
@@ -229,11 +251,18 @@ async function main() {
     'locked fields are non-interactive, so an edit cannot be silently dropped',
     JSON.stringify(gated));
 
-  // Unlock, then assert BOTH the server state and the same chip's label.
-  // The chip previously never flipped because the PATCH carrying the concurrency token
-  // was answered 412 by the CDN, so the client discarded a write that had in fact landed.
-  const chip = page.locator('[aria-label*="lock this section"]').first();
+  // Unlock, then assert BOTH the server state and the same chip's own re-render.
+  //
+  // Pin the chip by DOM identity. Its aria-label CHANGES on unlock —
+  // "Unlock this section for editing" -> "Restore canonical language lock" — so the
+  // substring selector [aria-label*="lock this section"] stops matching the node we
+  // tapped and .first() silently re-resolves to the NEXT still-locked block, which of
+  // course still reads "Locked". That cost a false failure and nearly cost a product
+  // "fix" for a bug that did not exist. aria-pressed is present in both states and only
+  // on lock chips, so index into that set instead.
+  const chip = page.locator('button[aria-pressed]').first();
   const chipBefore = (await chip.innerText().catch(() => '')).trim();
+  const pressedBefore = await chip.getAttribute('aria-pressed').catch(() => null);
   const locksBefore = (await api('GET', `/api/documents/${doc.id}`)).json?.document?.locks || {};
   await chip.click();
   await page.waitForTimeout(3500); // debounced autosave + refetch
@@ -242,9 +271,10 @@ async function main() {
   ok(flipped.length > 0, 'tapping Unlock actually clears the lock server-side', JSON.stringify(flipped));
 
   const chipAfter = (await chip.innerText().catch(() => '')).trim();
-  ok(/unlocked/i.test(chipAfter),
+  const pressedAfter = await chip.getAttribute('aria-pressed').catch(() => null);
+  ok(/unlocked/i.test(chipAfter) && pressedAfter === 'true' && pressedBefore === 'false',
     'the chip re-renders to the re-lock state, so the tap is not silently lost',
-    `${JSON.stringify(chipBefore)} -> ${JSON.stringify(chipAfter)}`);
+    `${JSON.stringify(chipBefore)}/${pressedBefore} -> ${JSON.stringify(chipAfter)}/${pressedAfter}`);
 
   // And no failed writes anywhere in that exchange.
   ok(!failedWrites.some((f) => /41[28]|409/.test(f)),

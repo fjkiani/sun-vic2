@@ -102,11 +102,18 @@ export function DocumentEditorPage() {
 
   useEffect(() => {
     if (!data?.document) return;
-    // The query cache is not updated by our own PATCH, so adopting `data` blindly
-    // overwrote the fresher document the save had just returned. Symptom: unlock a
-    // legal block, the server records it, and the chip snaps straight back to
-    // "Locked" — a change that looks lost but is not. updated_at is already the
-    // token we trust for concurrency, so use it to decide who is newer.
+    // Our own PATCH calls setDoc(result.document) but never writes the query cache, so
+    // adopting `data` unconditionally could overwrite fresher local state with an older
+    // cached document. With staleTime 30s and refetchOnWindowFocus on, backgrounding the
+    // app mid-save is the reachable path.
+    //
+    // Honest scope: this was originally written to explain a chip that appeared not to
+    // re-render after Unlock. That symptom turned out to be a test-harness artifact (the
+    // chip's aria-label changes on unlock, so the selector re-resolved to a different,
+    // still-locked chip) — the UI was correct all along. This guard is kept on its own
+    // merits as a monotonicity invariant, not as a fix for that symptom: never let an
+    // older document overwrite a newer one. updated_at is already the token we trust for
+    // optimistic concurrency, so reuse it rather than inventing a second signal.
     setDoc((cur) => {
       if (!cur || cur.id !== data.document.id) return data.document;
       const incoming = Date.parse(data.document.updated_at || 0) || 0;
@@ -298,7 +305,7 @@ export function DocumentEditorPage() {
       <Link
         to="/work"
         aria-label="Back to Work"
-        className="md:hidden grid place-items-center w-9 h-9 -ml-1 rounded-lg text-neutral-500 active:bg-neutral-100 flex-shrink-0"
+        className="md:hidden grid place-items-center w-11 h-11 -ml-2 rounded-lg text-neutral-500 active:bg-neutral-100 flex-shrink-0"
       >
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />

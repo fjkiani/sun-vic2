@@ -10,10 +10,11 @@ export function SegmentedTabs({ tabs, value, onChange, className = '' }) {
         return (
           <button
             key={t.id}
+            type="button" // bare <button> defaults to submit; see DocSubTabs
             role="tab"
             aria-selected={active}
             onClick={() => onChange(t.id)}
-            className={`flex-1 min-h-[40px] px-2 rounded-md text-sm font-medium transition-colors ${
+            className={`flex-1 min-h-[44px] px-2 rounded-md text-sm font-medium transition-colors ${
               active ? 'bg-white text-sunvic-700 shadow-sm' : 'text-neutral-500 hover:text-neutral-700'
             }`}
           >

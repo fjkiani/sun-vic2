@@ -15,10 +15,14 @@ export function DocSubTabs({ tabs, value, onChange, className = '' }) {
         return (
           <button
             key={t.id}
+            // A bare <button> defaults to type="submit". Every tab in this strip reported
+            // as a submit button when probed, so dropping the strip inside a <form> would
+            // make tapping a tab reload the page.
+            type="button"
             role="tab"
             aria-selected={active}
             onClick={() => onChange(t.id)}
-            className={`flex-shrink-0 inline-flex items-center gap-1.5 min-h-[40px] px-3 rounded-full text-sm font-medium border transition-colors ${
+            className={`flex-shrink-0 inline-flex items-center gap-1.5 min-h-[44px] px-3 rounded-full text-sm font-medium border transition-colors ${
               active
                 ? 'bg-sunvic-500 text-white border-sunvic-500'
                 : 'bg-white text-neutral-600 border-neutral-300 hover:border-neutral-400'
