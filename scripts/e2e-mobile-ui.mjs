@@ -168,6 +168,29 @@ async function main() {
     ok(await page.getByRole('tab', { name: new RegExp(`^${sub}$`, 'i') }).count() > 0, `Legal sub-tab "${sub}" renders`);
   }
 
+  // ── every sub-tab must land on content, not a wall of collapsed headers ──
+  // The accordion kept openId in state across a sub-tab swap, so it still pointed at a
+  // block from the previous sub-tab and nothing matched. Measured before the fix: 6 of
+  // these 8 sub-tabs opened with zero sections expanded, Payment and Signature showing
+  // one grey bar and empty space. This is the regression guard.
+  line('sub-tabs open on content');
+  const openSections = async () => page.evaluate(() =>
+    [...document.querySelectorAll('button[aria-expanded]')].filter((b) => b.getAttribute('aria-expanded') === 'true').length);
+  for (const [primary, subs] of [['Form', ['Homeowner', 'Scope', 'Payment', 'Timeline']],
+                                 ['Legal', ['Terms', 'Warranty', 'Cancellation', 'Signature']]]) {
+    await gotoTab(primary);
+    for (const sub of subs) {
+      const t = page.getByRole('tab', { name: new RegExp(`^${sub}$`, 'i') }).first();
+      if (await t.count() === 0) continue;
+      await t.click();
+      await page.waitForTimeout(900);
+      const n = await openSections();
+      ok(n > 0, `${primary}/${sub} opens with a section already expanded`, `${n} open`);
+    }
+  }
+
+  await gotoTab('Legal');
+
   // ── THE FIX: locked legal blocks must not accept silent edits ──
   line('legal locks — the defect this iteration found');
   const lockChip = page.locator('[aria-label="Unlock this section for editing"]').first();
@@ -177,12 +200,21 @@ async function main() {
   const warrantyTab = page.getByRole('tab', { name: /^Warranty$/i }).first();
   if (await warrantyTab.count() > 0) { await warrantyTab.click(); await page.waitForTimeout(1400); }
 
-  // Expand the Warranty block itself (the header, not its lock chip).
-  const firstBlock = page.locator('button').filter({ hasText: /Warrant/i })
-    .filter({ hasNot: page.locator('[aria-label*="lock this section"]') }).first();
-  if (await firstBlock.count() > 0) { await firstBlock.click().catch(() => {}); await page.waitForTimeout(1000); }
+  // Expand the Warranty block itself. Two traps here, both cost a false failure once:
+  // the sub-tab strip is ALSO <button role="tab">, so a plain text filter matches the
+  // tab rather than the accordion header; and clicking a header that is already open
+  // collapses it. Scope to aria-expanded (only the header carries it) and only click
+  // when it reports closed.
+  const firstBlock = page.locator('button[aria-expanded]').filter({ hasText: /Warrant/i }).first();
+  if (await firstBlock.count() > 0 && (await firstBlock.getAttribute('aria-expanded')) === 'false') {
+    await firstBlock.click().catch(() => {});
+    await page.waitForTimeout(1000);
+  }
 
-  const readOnlyNote = page.getByText(/canonical Sunvic language/i).first();
+  // The intro paragraph says "canonical Sunvic language" on every legal tab, so matching
+  // it proves nothing. Assert the per-block amber note, which only renders inside an
+  // expanded locked block.
+  const readOnlyNote = page.getByText(/read-only so it cannot be changed by\s+accident/i).first();
   ok(await readOnlyNote.count() > 0, 'locked block explains why it is read-only');
 
   // A locked body may hold a textarea, a text input, or radios — accept any field.

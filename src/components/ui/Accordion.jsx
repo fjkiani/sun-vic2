@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useContext, useRef, useState } from 'react';
 
 // Single-open accordion. The old form stacked seven expanded sections in one scroll, so
 // on a phone every section was a squeezed strip and the page was a mile long. Collapsing
@@ -9,6 +9,21 @@ const AccordionCtx = createContext(null);
 
 export function Accordion({ children, defaultOpen = null, allowAllClosed = true }) {
   const [openId, setOpenId] = useState(defaultOpen);
+
+  // Sub-tabs swap this accordion's *contents* without remounting it, so openId kept
+  // pointing at a block from the previous sub-tab, nothing matched, and the user landed
+  // on a wall of collapsed headers. Measured on production at 390px: 6 of the 8 document
+  // sub-tabs opened with zero sections expanded — including single-block tabs like
+  // Payment and Signature, which rendered one grey bar and empty space. defaultOpen
+  // tracks the first visible block, so re-seed from it whenever the visible set changes.
+  // Adjusting state during render (rather than in an effect) is the documented React
+  // pattern here and avoids painting one frame of the all-collapsed wall.
+  const seededFrom = useRef(defaultOpen);
+  if (seededFrom.current !== defaultOpen) {
+    seededFrom.current = defaultOpen;
+    if (openId !== defaultOpen) setOpenId(defaultOpen);
+  }
+
   const toggle = (id) => setOpenId((cur) => (cur === id ? (allowAllClosed ? null : cur) : id));
   return (
     <AccordionCtx.Provider value={{ openId, toggle }}>

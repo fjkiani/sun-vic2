@@ -101,7 +101,18 @@ export function DocumentEditorPage() {
   const updatedAtRef = useRef(null);
 
   useEffect(() => {
-    if (data?.document) setDoc(data.document);
+    if (!data?.document) return;
+    // The query cache is not updated by our own PATCH, so adopting `data` blindly
+    // overwrote the fresher document the save had just returned. Symptom: unlock a
+    // legal block, the server records it, and the chip snaps straight back to
+    // "Locked" — a change that looks lost but is not. updated_at is already the
+    // token we trust for concurrency, so use it to decide who is newer.
+    setDoc((cur) => {
+      if (!cur || cur.id !== data.document.id) return data.document;
+      const incoming = Date.parse(data.document.updated_at || 0) || 0;
+      const current = Date.parse(cur.updated_at || 0) || 0;
+      return incoming >= current ? data.document : cur;
+    });
   }, [data]);
   useEffect(() => {
     docIdRef.current = doc?.id || null;
