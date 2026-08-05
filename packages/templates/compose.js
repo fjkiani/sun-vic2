@@ -28,6 +28,7 @@ import {
   defaultInvoicePayload,
 } from './defaults.js';
 import { DEFAULT_PAYMENT_SCHEDULE } from './legal.js';
+import { DEFAULT_SCOPE_QTY } from './defaults.js';
 
 // ────────────────────────────────────────────────────────────
 // Canonical constants (kept here so the composer is self-sufficient; W5 will
@@ -189,7 +190,7 @@ export function buildScopeGroups(categories, totalCents) {
         {
           task: anchor.task,
           description: [...anchor.description],
-          qty: 'Lump Sump',
+          qty: DEFAULT_SCOPE_QTY,
           unit_price_cents: amt,
           amount_cents: amt,
         },
