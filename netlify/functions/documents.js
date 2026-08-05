@@ -25,9 +25,12 @@ export const handler = async (event) => {
     const q = event.queryStringParameters || {};
     let query = svc
       .from('documents')
-      .select('id, doc_number, template, status, title, client_name, client_email, project_ref, project_id, total_cents, updated_at, created_at, pdf_object_key, pdf_generated_at')
+      .select('id, doc_number, template, status, title, client_name, client_email, project_ref, project_id, total_cents, updated_at, created_at, pdf_object_key, pdf_generated_at, deleted_at')
       .eq('created_by', user.id)
       .order('updated_at', { ascending: false });
+    // Trash: by default hide trashed docs; ?trashed=1 returns only the Trash.
+    if (q.trashed === '1') query = query.not('deleted_at', 'is', null);
+    else query = query.is('deleted_at', null);
     if (q.template) query = query.eq('template', q.template);
     if (q.status) query = query.eq('status', q.status);
     if (q.q) query = query.ilike('title', `%${q.q}%`);

@@ -1,6 +1,7 @@
 // GET    /api/documents/:id    — fetch document + latest revisions + agent messages
 // PATCH  /api/documents/:id    — partial update {payload?, locks?, status?, title?}
-// DELETE /api/documents/:id    — soft-delete (status=void)
+// DELETE /api/documents/:id    — move to Trash (sets deleted_at); ?permanent=1 hard-deletes
+// POST   /api/documents/:id    — {action:'restore'} clears deleted_at (restore from Trash)
 
 import { json, handleOptions, parseJson, bearer } from './_shared/http.js';
 import { verifyUser, serviceClient } from '../../packages/db/supabase.js';
@@ -167,13 +168,35 @@ export const handler = async (event) => {
     return json(200, { document: updated, skipped_locks: skippedLocks });
   }
 
-  // ─── DELETE (soft) ───────────────────────────────────
+  // ─── POST (restore from Trash) ───────────────────────
+  if (event.httpMethod === 'POST') {
+    const body = parseJson(event) || {};
+    if (body.action !== 'restore') return json(400, { error: 'unsupported_action' });
+    const { data: restored, error } = await svc
+      .from('documents').update({ deleted_at: null }).eq('id', id).eq('created_by', user.id)
+      .select('*').single();
+    if (error) return json(500, { error: 'restore_failed', detail: error.message });
+    return json(200, { document: restored, restored: true });
+  }
+
+  // ─── DELETE (Trash / permanent) ──────────────────────
   if (event.httpMethod === 'DELETE') {
-    const { data: updated, error } = await svc
-      .from('documents').update({ status: 'void' }).eq('id', id).eq('created_by', user.id)
+    const permanent = event.queryStringParameters?.permanent === '1';
+    if (permanent) {
+      // Hard delete: remove dependent rows first (revisions, agent messages), then the doc.
+      await svc.from('document_revisions').delete().eq('document_id', id);
+      await svc.from('agent_messages').delete().eq('document_id', id);
+      const { error } = await svc
+        .from('documents').delete().eq('id', id).eq('created_by', user.id);
+      if (error) return json(500, { error: 'delete_failed', detail: error.message });
+      return json(200, { deleted: true, permanent: true, id });
+    }
+    // Soft delete → Trash.
+    const { data: trashed, error } = await svc
+      .from('documents').update({ deleted_at: new Date().toISOString() }).eq('id', id).eq('created_by', user.id)
       .select('*').single();
     if (error) return json(500, { error: 'delete_failed', detail: error.message });
-    return json(200, { document: updated });
+    return json(200, { document: trashed, trashed: true });
   }
 
   return json(405, { error: 'method_not_allowed' });

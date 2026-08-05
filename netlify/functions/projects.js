@@ -15,7 +15,7 @@ export const handler = async (event) => {
   if (event.httpMethod === 'GET') {
     const q = event.queryStringParameters || {};
     try {
-      const projects = await listProjects(user.id, { status: q.status, q: q.q });
+      const projects = await listProjects(user.id, { status: q.status, q: q.q, trashed: q.trashed === '1' });
       return json(200, { projects });
     } catch (e) {
       return json(500, { error: 'db_error', detail: String(e?.message || e) });
