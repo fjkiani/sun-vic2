@@ -16,6 +16,7 @@ import { ContractPayload as ContractPayloadSchema, InvoicePayload as InvoicePayl
 import { mergeWithLocks } from '../../netlify/functions/_shared/locks.js';
 import { buildFallbackChain, isFallbackableError, clampMaxTokens } from './providers/capabilities.js';
 import { composeFromSlots, reconcileWithSlots } from '../templates/compose.js';
+import { extractStartDate } from './promptDates.js';
 import { TAX } from '../config/business.js';
 
 // ────────────────────────────────────────────────────────────
@@ -137,6 +138,11 @@ function structuralHint(chosenTemplate, defaults) {
         labor_cost_cents: 0,
         materials_cost_cents: 0,
         total_cents: 0,
+      },
+      // Without this the model is never told a start date is wanted, so it never emits one,
+      // and reconcileContractWithSlots has nothing to fall back to on the prompt-only path.
+      timeline: {
+        start_date: '<YYYY-MM-DD if the prompt states a start date, otherwise omit this key>',
       },
     };
   }
@@ -383,7 +389,17 @@ async function _runOneshot({ prompt, template, providerId = 'cohere', model, hom
   }
 
   // ── ALWAYS reconcile with gathered slots (Bug G + Bug J on every path) ──
-  let finalPayload = reconcileWithSlots(chosenTemplate, generated.payload, gatheredSlots, invoiceContext);
+  // On the prompt-only path (POST /api/documents with a prompt) there are no gathered
+  // slots, so the start date used to come entirely from the model — and a prompt that
+  // plainly said "Start date March 3 2026" produced null, which then blocked emailing the
+  // finished contract on a required-field preflight. Parse it from the prompt ourselves
+  // when the conversation did not already supply one. Gathered slots still win.
+  const effectiveSlots = { ...gatheredSlots };
+  if (chosenTemplate === 'contract' && !effectiveSlots['timeline.start_date']) {
+    const parsedStart = extractStartDate(prompt);
+    if (parsedStart) effectiveSlots['timeline.start_date'] = parsedStart;
+  }
+  let finalPayload = reconcileWithSlots(chosenTemplate, generated.payload, effectiveSlots, invoiceContext);
   // Re-validate after reconciliation (reconciliation only sets schema-valid fields,
   // but validate to guarantee the contract with callers).
   const reparsed = schema.safeParse(finalPayload);

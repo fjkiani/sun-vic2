@@ -3,6 +3,33 @@ import { Accordion, AccordionItem } from '../ui/Accordion.jsx';
 import { FieldRow, TextField } from '../ui/FieldRow.jsx';
 import { LEGAL_TABS, blocksFor } from '../doc/docSections.js';
 import { LEGAL_BLOCK_META, legalBlocksFor } from './legal/legalMeta.js';
+import { DEFAULT_CONTRACT_LOCKS, DEFAULT_INVOICE_LOCKS } from '../../../packages/templates/legal.js';
+
+// The paths the server ships locked. Membership here means "canonical language", which is
+// what the lock chip toggles — so re-locking restores exactly the default protection and
+// never locks a field that was always meant to be freely editable.
+const CANONICAL_PATHS = new Set([
+  ...Object.keys(DEFAULT_CONTRACT_LOCKS),
+  ...Object.keys(DEFAULT_INVOICE_LOCKS),
+]);
+
+function LockChip({ locked, onToggle }) {
+  return (
+    <button
+      type="button"
+      onClick={(e) => { e.stopPropagation(); onToggle(); }}
+      className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium min-h-[32px] ${
+        locked
+          ? 'bg-neutral-200 text-neutral-700 active:bg-neutral-300'
+          : 'bg-amber-100 text-amber-900 active:bg-amber-200'
+      }`}
+      aria-pressed={!locked}
+      aria-label={locked ? 'Unlock this section for editing' : 'Restore canonical language lock'}
+    >
+      {locked ? 'Locked · Unlock' : 'Unlocked · Re-lock'}
+    </button>
+  );
+}
 
 // Legal blocks, rebound to the payload shapes that actually exist.
 //
@@ -282,9 +309,9 @@ function blockState(id, p) {
   return { filled: filled.length, total: textPaths.length };
 }
 
-export function LegalEditor({ doc, onSave, section = null }) {
+export function LegalEditor({ doc, onSave, onToggleLock, section = null }) {
   const p = doc?.payload || {};
-  const set = (patch) => onSave(patch);
+  const locks = doc?.locks || {};
 
   const allowed = blocksFor(LEGAL_TABS, section);
   const visible = legalBlocksFor(doc?.template, allowed);
@@ -309,18 +336,54 @@ export function LegalEditor({ doc, onSave, section = null }) {
           const meta = LEGAL_BLOCK_META[id];
           const { filled, total } = blockState(id, p);
           const incomplete = filled < total;
+
+          // Which of this block's paths the server will refuse to write. Anything in
+          // here is skipped by mergeWithLocks and answered 200, so the editor has to
+          // refuse it up front rather than let the save look like it worked.
+          const canonical = meta.paths.filter((path) => CANONICAL_PATHS.has(path));
+          const lockedPaths = canonical.filter((path) => locks[path] === true);
+          const isLocked = lockedPaths.length > 0;
+
+          // Belt and braces: even if a child somehow fires while locked, drop the
+          // locked keys instead of shipping a write that will be silently discarded.
+          const set = (patch) => {
+            if (!isLocked) return onSave(patch);
+            const writable = Object.fromEntries(
+              Object.entries(patch).filter(([path]) => locks[path] !== true)
+            );
+            if (Object.keys(writable).length > 0) onSave(writable);
+          };
+
+          const toggle = () => {
+            if (!onToggleLock) return;
+            (isLocked ? lockedPaths : canonical).forEach((path) => onToggleLock(path));
+          };
+
           return (
             <AccordionItem
               key={id}
               id={id}
               title={meta.title}
               subtitle={meta.plain}
-              badge={incomplete ? `${filled}/${total}` : null}
-              warn={incomplete}
+              badge={incomplete && !isLocked ? `${filled}/${total}` : null}
+              warn={incomplete && !isLocked}
+              action={canonical.length > 0 ? <LockChip locked={isLocked} onToggle={toggle} /> : null}
             >
               <div className="space-y-3">
                 <p className="text-xs text-neutral-500 leading-snug">{meta.help}</p>
-                <BlockBody id={id} p={p} set={set} />
+                {isLocked && (
+                  <div className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2.5 text-xs text-amber-900 leading-snug">
+                    This is canonical Sunvic language. It is read-only so it cannot be changed by
+                    accident — tap <span className="font-medium">Unlock</span> above if this job
+                    genuinely needs different terms.
+                  </div>
+                )}
+                <div
+                  className={isLocked ? 'pointer-events-none select-none opacity-60' : undefined}
+                  aria-disabled={isLocked || undefined}
+                >
+                  <BlockBody id={id} p={p} set={set} />
+                </div>
               </div>
             </AccordionItem>
           );
