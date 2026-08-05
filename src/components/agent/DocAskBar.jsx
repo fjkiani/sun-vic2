@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { api } from '../../lib/api.js';
 import { useModelChoice } from '../ModelPickerDropdown.jsx';
 import { buildScopedMessage, scopePlaceholder, scopeSuggestions } from '../../lib/agentScope.js';
+import { useAgentFocus } from '../../lib/agentFocus.js';
 
 // The copilot, docked at the bottom of every document tab (plan decision 4).
 //
@@ -19,8 +20,29 @@ export function DocAskBar({ document: doc, scope = {}, onDocumentUpdate, classNa
   const [error, setError] = useState('');
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [choice] = useModelChoice();
+  const inputRef = useRef(null);
 
-  const suggestions = scopeSuggestions(scope, doc);
+  // A section header's agent button aims this bar at one block. The request overrides the
+  // tab-level scope until the next send, so "make this stricter" tapped on Warranties is
+  // scoped to warranties rather than to the whole legal tab.
+  const focusRequest = useAgentFocus((s) => s.request);
+  const consumeFocus = useAgentFocus((s) => s.consume);
+  const [focused, setFocused] = useState(null);
+
+  useEffect(() => {
+    if (!focusRequest) return;
+    setFocused({ tab: focusRequest.tab ?? scope.tab, section: focusRequest.section, blocks: focusRequest.blocks, label: focusRequest.label });
+    if (focusRequest.prefill) setInput(focusRequest.prefill);
+    setShowSuggestions(true);
+    consumeFocus();
+    // Deliberately not auto-focusing the field: on iOS that throws up the keyboard and
+    // covers the section the user just tapped.
+    inputRef.current?.scrollIntoView?.({ block: 'nearest' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusRequest?.nonce]);
+
+  const activeScope = focused || scope;
+  const suggestions = scopeSuggestions(activeScope, doc);
 
   async function send(text) {
     const msg = (text ?? input).trim();
@@ -32,7 +54,7 @@ export function DocAskBar({ document: doc, scope = {}, onDocumentUpdate, classNa
     try {
       const res = await api.agentChat({
         doc_id: doc.id,
-        message: buildScopedMessage(msg, scope),
+        message: buildScopedMessage(msg, activeScope),
         provider: choice?.provider,
         model: choice?.model,
       });
@@ -41,6 +63,8 @@ export function DocAskBar({ document: doc, scope = {}, onDocumentUpdate, classNa
         tools: res.applied_tool_calls || [],
         refused: res.refused || [],
         confirm_required: res.confirm_required || null,
+        blocked: res.blocked_by_guardrails || null,
+        validation: res.validation || null,
       });
       if (res.document) onDocumentUpdate?.(res.document);
     } catch (e) {
@@ -59,7 +83,26 @@ export function DocAskBar({ document: doc, scope = {}, onDocumentUpdate, classNa
           {error && <div className="text-rose-600 text-xs">{error}</div>}
           {result?.confirm_required && (
             <div className="mb-2 text-xs bg-amber-50 border border-amber-300 text-amber-900 rounded-lg px-2 py-1.5">
-              This document is {doc.status}. {result.confirm_required}
+              {typeof result.confirm_required === 'string'
+                ? <>This document is {doc.status}. {result.confirm_required}</>
+                : result.confirm_required.message}
+            </div>
+          )}
+          {/* A guardrail refused to persist the change. Nothing was written. */}
+          {result?.blocked && (
+            <div className="mb-2 text-xs bg-rose-50 border border-rose-300 text-rose-900 rounded-lg px-2 py-1.5">
+              <div className="font-medium mb-0.5">Not saved</div>
+              <ul className="list-disc pl-4 space-y-0.5">
+                {(result.blocked.issues || []).map((i, ix) => <li key={ix}>{i.message}</li>)}
+              </ul>
+            </div>
+          )}
+          {/* Saved, but the numbers still do not add up. Worth seeing before sending. */}
+          {!result?.blocked && result?.validation?.issues?.length > 0 && (
+            <div className="mb-2 text-xs bg-amber-50 border border-amber-200 text-amber-900 rounded-lg px-2 py-1.5">
+              <ul className="list-disc pl-4 space-y-0.5">
+                {result.validation.issues.map((i, ix) => <li key={ix}>{i.message}</li>)}
+              </ul>
             </div>
           )}
           {result?.tools?.length > 0 && (
@@ -75,7 +118,7 @@ export function DocAskBar({ document: doc, scope = {}, onDocumentUpdate, classNa
             <div className="flex flex-wrap gap-1 mb-1.5">
               {result.refused.map((r, i) => (
                 <span key={i} className="text-[11px] bg-amber-50 border border-amber-200 text-amber-800 rounded-full px-2 py-0.5">
-                  🔒 {r.tool}{r.path ? ` (${r.path})` : ''}
+                  🔒 {r.tool || r.reason}{r.path || r.field ? ` (${r.path || r.field})` : ''}
                 </span>
               ))}
             </div>
@@ -109,6 +152,20 @@ export function DocAskBar({ document: doc, scope = {}, onDocumentUpdate, classNa
         </div>
       )}
 
+      {/* Shows what the next prompt is aimed at, and lets the user widen it back out. */}
+      {focused?.label && (
+        <div className="flex items-center gap-2 px-3 py-1.5 border-b border-neutral-100 bg-sunvic-50">
+          <span className="text-[11px] text-sunvic-800 truncate">Asking about <strong>{focused.label}</strong></span>
+          <button
+            type="button"
+            onClick={() => setFocused(null)}
+            className="ml-auto flex-shrink-0 text-[11px] text-sunvic-700 underline"
+          >
+            whole document
+          </button>
+        </div>
+      )}
+
       <div className="flex items-center gap-2 p-2">
         <button
           type="button"
@@ -122,10 +179,11 @@ export function DocAskBar({ document: doc, scope = {}, onDocumentUpdate, classNa
           </svg>
         </button>
         <input
+          ref={inputRef}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
-          placeholder={scopePlaceholder(scope)}
+          placeholder={scopePlaceholder(activeScope)}
           disabled={busy}
           // 16px text prevents iOS Safari from zooming the viewport on focus.
           className="flex-1 min-w-0 min-h-[44px] rounded-xl border border-neutral-300 px-3 text-base focus:border-sunvic-500 focus:ring-2 focus:ring-sunvic-200 focus:outline-none disabled:bg-neutral-100"

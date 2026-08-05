@@ -1,12 +1,26 @@
 // Arithmetic used by the document forms, kept free of React so it can be executed
 // directly by node in a test rather than only exercised through a browser.
 
+// Mirrors packages/validation/guardrails.js so the form can show live feedback without
+// pulling server code into the bundle. test-guardrails.mjs cross-asserts the two agree
+// over randomized inputs, so this copy cannot drift from the rule the server enforces.
+//
+// Compared in integer hundredths of a percent, not with a float epsilon: under
+// `Math.abs(sum - 100) < 0.01` a single 99.99 row is rejected while 50 + 49.99 — the same
+// schedule, the same missing $6.50 — is accepted, because the second spelling lands on
+// 99.99000000000001. The verdict must not depend on how the rows are split.
+const SCALE = 100;
+
+export function scheduleSumHundredths(schedule) {
+  return (schedule || []).reduce((a, r) => a + Math.round((Number(r?.percent) || 0) * SCALE), 0);
+}
+
 export function scheduleSum(schedule) {
-  return (schedule || []).reduce((a, r) => a + (Number(r.percent) || 0), 0);
+  return scheduleSumHundredths(schedule) / SCALE;
 }
 
 export function scheduleBalanced(schedule) {
-  return Math.abs(scheduleSum(schedule) - 100) < 0.01;
+  return scheduleSumHundredths(schedule) === 100 * SCALE;
 }
 
 // Contract: labor + materials should reconcile to the total. Tolerance is one dollar,

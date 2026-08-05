@@ -8,6 +8,7 @@ import { verifyUser, serviceClient } from '../../packages/db/supabase.js';
 import { mergeWithLocks } from './_shared/locks.js';
 import { totalCentsFor } from './_shared/totals.js';
 import { payloadSchemaFor } from '../../packages/schema/documents.js';
+import { validatePayload, writeGuard, statusTransitionGuard } from '../../packages/validation/guardrails.js';
 
 export const handler = async (event) => {
   const pre = handleOptions(event);
@@ -100,6 +101,41 @@ export const handler = async (event) => {
       }
     }
 
+    // ── guardrails ────────────────────────────────────────────
+    // Deliberately staged rather than uniform. The editor autosaves on a 500ms debounce,
+    // so rejecting a PATCH whenever the arithmetic is mid-edit would throw away keystrokes
+    // as the user types the second of six milestones. Arithmetic problems are therefore
+    // reported on the response and enforced at the moment they matter — delivery — while
+    // the two things that must never happen silently are blocked outright here.
+    const payloadChanged = !!updates.payload
+      && JSON.stringify(updates.payload) !== JSON.stringify(doc.payload);
+
+    // 1. A document that has already gone out is not casually editable, by anyone.
+    const guard = writeGuard({
+      status: doc.status,
+      confirmed: body.confirm === true,
+      source: body.change_source === 'agent_tool' ? 'agent' : 'user',
+      hasPayloadChange: payloadChanged,
+    });
+    if (guard) {
+      return json(409, { error: guard.code, detail: guard.message, status: doc.status, confirm_required: true });
+    }
+
+    // 2. Moving into a delivery status is the moment the numbers have to be right.
+    if (body.status && body.status !== doc.status) {
+      const tGuard = statusTransitionGuard({
+        from: doc.status,
+        to: body.status,
+        payload: updates.payload || doc.payload,
+        template: doc.template,
+      });
+      if (tGuard) {
+        return json(409, { error: tGuard.code, detail: tGuard.message, issues: tGuard.issues });
+      }
+    }
+
+    const validation = validatePayload(updates.payload || doc.payload, doc.template);
+
     if (body.status && ['draft','sent','signed','paid','overdue','void'].includes(body.status)) {
       updates.status = body.status;
     }
@@ -165,7 +201,10 @@ export const handler = async (event) => {
       console.warn('[document.PATCH] proactive nudge failed:', nudgeErr?.message || nudgeErr);
     }
 
-    return json(200, { document: updated, skipped_locks: skippedLocks });
+    // The save succeeded; anything still wrong with the numbers rides back on the response
+    // so the editor can show it without a second round trip. Non-blocking by design — see
+    // the guardrail note above.
+    return json(200, { document: updated, skipped_locks: skippedLocks, validation });
   }
 
   // ─── POST (restore from Trash) ───────────────────────
