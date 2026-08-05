@@ -58,7 +58,7 @@ export function BottomTabBar() {
   return (
     <nav
       className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-white border-t border-neutral-200 shadow-[0_-1px_3px_rgba(0,0,0,0.06)]"
-      style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+      style={{ paddingBottom: 'var(--safe-bottom)' }}
       aria-label="Primary"
     >
       <div className="grid grid-cols-4">
@@ -68,12 +68,14 @@ export function BottomTabBar() {
             <NavLink
               key={t.to}
               to={t.to}
-              className={`flex flex-col items-center justify-center gap-0.5 min-h-[56px] py-1.5 ${
+              aria-current={active ? 'page' : undefined}
+              className={`relative flex flex-col items-center justify-center gap-0.5 min-h-[56px] py-1.5 active:bg-neutral-50 ${
                 active ? 'text-sunvic-600' : 'text-neutral-500 hover:text-neutral-700'
               }`}
             >
+              {active && <span className="absolute top-0 h-0.5 w-8 rounded-full bg-sunvic-500" aria-hidden="true" />}
               {t.icon(active)}
-              <span className={`text-[10px] ${active ? 'font-semibold' : ''}`}>{t.label}</span>
+              <span className={`text-[10px] leading-none ${active ? 'font-semibold' : ''}`}>{t.label}</span>
             </NavLink>
           );
         })}

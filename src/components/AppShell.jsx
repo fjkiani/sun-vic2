@@ -24,7 +24,7 @@ export function AppShell() {
     `text-sm hover:text-neutral-900 ${isActive ? 'text-sunvic-600 font-semibold' : 'text-neutral-600'}`;
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="min-h-[100dvh] flex flex-col">
       <header className="bg-white border-b border-neutral-200 shadow-sm sticky top-0 z-30">
         <div className="max-w-7xl mx-auto px-3 md:px-4 py-2.5 md:py-3 flex items-center justify-between gap-2">
           {/* Left: logo */}
@@ -66,7 +66,10 @@ export function AppShell() {
             className="absolute inset-0 bg-black/40"
             onClick={() => setDrawerOpen(false)}
           />
-          <div className="absolute right-0 top-0 bottom-0 w-72 bg-white shadow-xl flex flex-col">
+          <div
+            className="absolute right-0 top-0 bottom-0 w-72 max-w-[85vw] bg-white shadow-xl flex flex-col"
+            style={{ paddingBottom: 'var(--safe-bottom)' }}
+          >
             <div className="p-4 border-b border-neutral-200 flex items-center justify-between">
               <div className="font-bold text-neutral-900">Menu</div>
               <button
@@ -98,7 +101,9 @@ export function AppShell() {
         </div>
       )}
 
-      <main className="flex-1 max-w-7xl mx-auto w-full px-3 md:px-4 pt-4 md:pt-6 pb-[calc(4.5rem+env(safe-area-inset-bottom))] md:pb-6">
+      {/* Bottom padding clears the fixed tab bar + the iOS home indicator. `md:pb-6`
+          must win on desktop, so this stays a class rather than an inline style. */}
+      <main className="flex-1 max-w-7xl mx-auto w-full px-3 md:px-4 pt-4 md:pt-6 pb-[calc(4.75rem+var(--safe-bottom))] md:pb-6">
         <Outlet />
       </main>
 

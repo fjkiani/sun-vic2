@@ -4,41 +4,20 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api.js';
 import { WorkFilters } from '../components/work/WorkFilters.jsx';
 import { TrashView } from '../components/TrashView.jsx';
-import { DeleteButton } from '../components/DeleteButton.jsx';
-
-function fmtUSD(cents) {
-  return ((Number(cents) || 0) / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
-}
-function fmtDate(iso) {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
-const STATUS_STYLES = {
-  draft:    'bg-neutral-100 text-neutral-700 border-neutral-200',
-  sent:     'bg-blue-50 text-blue-700 border-blue-200',
-  signed:   'bg-emerald-50 text-emerald-700 border-emerald-200',
-  paid:     'bg-emerald-50 text-emerald-700 border-emerald-200',
-  overdue:  'bg-rose-50 text-rose-700 border-rose-200',
-  void:     'bg-neutral-50 text-neutral-400 border-neutral-200',
-};
-function StatusBadge({ status }) {
-  return (
-    <span className={`text-[10px] px-2 py-0.5 rounded border font-semibold uppercase ${STATUS_STYLES[status] || STATUS_STYLES.draft}`}>
-      {status}
-    </span>
-  );
-}
+import { DocumentRow, ProjectRow } from '../components/work/WorkRows.jsx';
+import { useSwipeDelete, isDocGuarded, isProjectGuarded } from '../components/work/useSwipeDelete.js';
+import { ConfirmSheet } from '../components/ui/BottomSheet.jsx';
+import { formatUSD } from '../components/ui/MoneyInput.jsx';
 
 // Map back-compat ?type= values to internal tab ids.
 function normalizeType(t) {
   if (t === 'documents') return 'all';
-  if (t === 'projects') return 'projects';
   if (['all', 'projects', 'contract', 'invoice', 'trash'].includes(t)) return t;
   return 'all';
 }
 
 // Work — unified Projects + Contracts + Invoices in one filterable list, plus Trash.
-// Mobile-first: cards on small screens, table on md+. No endless scroll — a capped list.
+// Mobile-first: swipeable cards, no table, no endless scroll.
 export function WorkPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const type = normalizeType(searchParams.get('type') || 'all');
@@ -83,22 +62,69 @@ export function WorkPage() {
     qc.invalidateQueries({ queryKey: ['trash'] });
   }
 
+  const swipe = useSwipeDelete({ onChanged: refresh });
+
+  function docPayload(d) {
+    return {
+      label: d.doc_number || 'Document',
+      remove: () => api.deleteDocument(d.id),
+      restore: () => api.restoreDocument(d.id),
+    };
+  }
+  function projectPayload(p) {
+    return {
+      label: p.name || 'Project',
+      remove: () => api.deleteProject(p.id),
+      restore: () => api.restoreProject(p.id),
+    };
+  }
+
+  function onDocSwipe(d, guarded) {
+    const payload = docPayload(d);
+    if (!guarded && !isDocGuarded(d)) return swipe.softDelete(payload);
+    return swipe.requestConfirm({
+      title: `Move ${d.doc_number} to Trash?`,
+      body: `This ${d.template} is marked ${d.status} — it has already gone out to the homeowner. It moves to Trash and stays restorable, but the issued copy is unaffected.`,
+      confirmLabel: 'Move to Trash',
+      payload,
+    });
+  }
+
+  function onProjectSwipe(p, guarded) {
+    const payload = projectPayload(p);
+    if (!guarded && !isProjectGuarded(p)) return swipe.softDelete(payload);
+    return swipe.requestConfirm({
+      title: `Move ${p.name} to Trash?`,
+      body: `This project carries ${formatUSD(p.contract_total_cents)} in contract value. It moves to Trash and stays restorable.`,
+      confirmLabel: 'Move to Trash',
+      payload,
+    });
+  }
+
   return (
     <div className="max-w-4xl mx-auto space-y-4">
       <div className="flex items-center justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <h1 className="text-xl font-bold text-neutral-900">Work</h1>
           <p className="text-sm text-neutral-500">Projects, contracts, and invoices.</p>
         </div>
         <Link
           to="/copilot"
-          className="min-h-[44px] px-4 rounded-xl bg-sunvic-500 hover:bg-sunvic-600 text-white text-sm font-semibold grid place-items-center"
+          className="min-h-[44px] px-4 rounded-xl bg-sunvic-500 hover:bg-sunvic-600 text-white text-sm font-semibold grid place-items-center flex-shrink-0"
         >
-          + New with Copilot
+          <span className="hidden sm:inline">+ New with Copilot</span>
+          <span className="sm:hidden">+ New</span>
         </Link>
       </div>
 
       <WorkFilters type={type} onType={setType} status={status} onStatus={setStatus} q={q} onQ={setQ} />
+
+      {swipe.error && (
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 flex items-center justify-between gap-3">
+          <span>{swipe.error}</span>
+          <button onClick={swipe.clearError} className="text-xs font-semibold underline">Dismiss</button>
+        </div>
+      )}
 
       {isTrash ? (
         <div className="rounded-xl border border-neutral-200 bg-white overflow-hidden">
@@ -107,38 +133,21 @@ export function WorkPage() {
       ) : loading ? (
         <div className="rounded-xl border border-neutral-200 bg-white p-10 text-center text-neutral-400 text-sm">Loading…</div>
       ) : (
-        <div className="space-y-4">
-          {/* Projects */}
+        <div className="space-y-5">
           {showProjects && projects.length > 0 && (
             <section>
-              <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wide mb-2 px-1">Projects</div>
+              <SectionHeading>Projects</SectionHeading>
               <div className="space-y-2">
                 {projects.map((p) => (
-                  <div key={p.id} className="relative">
-                    <Link
-                      to={`/projects/${p.id}`}
-                      className="block rounded-xl border border-neutral-200 bg-white p-3 pr-14 active:bg-neutral-50"
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="font-semibold text-neutral-900 truncate">{p.name}</div>
-                        <span className="text-[10px] uppercase font-semibold text-neutral-500 capitalize">{p.status}</span>
-                      </div>
-                      <div className="text-xs text-neutral-500 truncate">{p.homeowner_name || '—'} · {p.property_address || ''}</div>
-                      <div className="text-xs font-mono font-semibold text-neutral-800 mt-1">{fmtUSD(p.contract_total_cents)}</div>
-                    </Link>
-                    <div className="absolute top-2 right-2">
-                      <DeleteButton what="project" onDelete={async () => { await api.deleteProject(p.id); refresh(); }} />
-                    </div>
-                  </div>
+                  <ProjectRow key={p.id} project={p} onSwipe={onProjectSwipe} />
                 ))}
               </div>
             </section>
           )}
 
-          {/* Documents */}
           {showDocs && (
             <section>
-              {showProjects && <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wide mb-2 px-1">Documents</div>}
+              {showProjects && <SectionHeading>Documents</SectionHeading>}
               {docs.length === 0 ? (
                 <div className="rounded-xl border border-neutral-200 bg-white p-8 text-center text-neutral-400 text-sm">
                   No documents match. Create one with the Copilot.
@@ -146,30 +155,17 @@ export function WorkPage() {
               ) : (
                 <div className="space-y-2">
                   {docs.map((d) => (
-                    <div key={d.id} className="relative">
-                      <Link
-                        to={`/documents/${d.id}`}
-                        className="block rounded-xl border border-neutral-200 bg-white p-3 pr-14 active:bg-neutral-50"
-                      >
-                        <div className="flex items-center justify-between gap-2 mb-0.5">
-                          <div className="font-mono text-sunvic-600 font-semibold text-sm">{d.doc_number}</div>
-                          <StatusBadge status={d.status} />
-                        </div>
-                        <div className="font-medium text-sm truncate">{d.title || '—'}</div>
-                        <div className="text-xs text-neutral-500 truncate">{d.client_name || 'no client'} · {d.template}</div>
-                        <div className="flex items-center justify-between text-xs mt-1">
-                          <span className="font-mono font-semibold text-neutral-800">{fmtUSD(d.total_cents)}</span>
-                          <span className="text-neutral-400">{fmtDate(d.updated_at)}</span>
-                        </div>
-                      </Link>
-                      <div className="absolute top-2 right-2">
-                        <DeleteButton what={d.template} onDelete={async () => { await api.deleteDocument(d.id); refresh(); }} />
-                      </div>
-                    </div>
+                    <DocumentRow key={d.id} doc={d} onSwipe={onDocSwipe} />
                   ))}
                 </div>
               )}
             </section>
+          )}
+
+          {(docs.length > 0 || projects.length > 0) && (
+            <p className="md:hidden text-center text-[11px] text-neutral-400 pt-1">
+              Swipe a card left to delete. Issued documents ask first.
+            </p>
           )}
 
           {showProjects && projects.length === 0 && docs.length === 0 && !loading && (
@@ -179,6 +175,23 @@ export function WorkPage() {
           )}
         </div>
       )}
+
+      <ConfirmSheet
+        open={!!swipe.confirm}
+        onClose={swipe.closeConfirm}
+        title={swipe.confirm?.title || ''}
+        body={swipe.confirm?.body || ''}
+        confirmLabel={swipe.confirm?.confirmLabel || 'Move to Trash'}
+        onConfirm={swipe.runConfirmed}
+        busy={swipe.busy}
+      />
+      {swipe.toast.node}
     </div>
+  );
+}
+
+function SectionHeading({ children }) {
+  return (
+    <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wide mb-2 px-1">{children}</div>
   );
 }
