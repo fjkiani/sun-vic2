@@ -4,6 +4,7 @@ import { FieldRow, TextField } from '../ui/FieldRow.jsx';
 import { MoneyInput, formatUSD } from '../ui/MoneyInput.jsx';
 import { Advanced } from './ContractFormEditor.jsx';
 import { INVOICE_FORM_TABS, blocksFor } from '../doc/docSections.js';
+import { SectionAgentButton } from '../agent/SectionAgentButton.jsx';
 import { deriveInvoiceTotals } from './formMath.js';
 
 // Invoice form, rebuilt mobile-first — and rebound to the paths that actually exist.
@@ -360,7 +361,15 @@ export function InvoiceEditor({ doc, onSave, section = null }) {
         {visible.map((id) => {
           const m = meta[id] || { title: id };
           return (
-            <AccordionItem key={id} id={id} title={m.title} subtitle={m.subtitle} badge={m.badge} warn={!!m.warn}>
+            <AccordionItem
+              key={id}
+              id={id}
+              title={m.title}
+              subtitle={m.subtitle}
+              badge={m.badge}
+              warn={!!m.warn}
+              action={<SectionAgentButton tab="form" section={section} blocks={[id]} label={m.title} />}
+            >
               {renderBlock(id)}
             </AccordionItem>
           );

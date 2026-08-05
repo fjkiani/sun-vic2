@@ -3,6 +3,7 @@ import { Accordion, AccordionItem } from '../ui/Accordion.jsx';
 import { FieldRow, TextField } from '../ui/FieldRow.jsx';
 import { MoneyInput, formatUSD } from '../ui/MoneyInput.jsx';
 import { CONTRACT_FORM_TABS, blocksFor } from '../doc/docSections.js';
+import { SectionAgentButton } from '../agent/SectionAgentButton.jsx';
 import { scheduleSum, laborMaterialsDrift } from './formMath.js';
 import { getScopePreset, DEFAULT_SCOPE_QTY } from '../../../packages/templates/defaults.js';
 
@@ -660,7 +661,15 @@ export function ContractFormEditor({ doc, onSave, onToggleLock, section = null }
         {visible.map((id) => {
           const m = meta[id] || { title: id };
           return (
-            <AccordionItem key={id} id={id} title={m.title} subtitle={m.subtitle} badge={m.badge} warn={!!m.warn}>
+            <AccordionItem
+              key={id}
+              id={id}
+              title={m.title}
+              subtitle={m.subtitle}
+              badge={m.badge}
+              warn={!!m.warn}
+              action={<SectionAgentButton tab="form" section={section} blocks={[id]} label={m.title} />}
+            >
               {renderBlock(id)}
             </AccordionItem>
           );
