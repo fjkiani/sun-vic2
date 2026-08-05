@@ -13,6 +13,9 @@ import { ProjectsListPage } from './pages/ProjectsListPage.jsx';
 import { ProjectDashboardPage } from './pages/ProjectDashboardPage.jsx';
 import { ChatHomePage } from './pages/ChatHomePage.jsx';
 import { ChatThreadPage } from './pages/ChatThreadPage.jsx';
+import { CopilotPage } from './pages/CopilotPage.jsx';
+import { WorkPage } from './pages/WorkPage.jsx';
+import { ActivityPage } from './pages/ActivityPage.jsx';
 import { useSession } from './lib/hooks.js';
 
 const qc = new QueryClient({ defaultOptions: { queries: { staleTime: 30_000 } } });
@@ -31,15 +34,21 @@ ReactDOM.createRoot(document.getElementById('root')).render(
         <Routes>
           <Route path="/sign-in" element={<SignInPage />} />
           <Route path="/" element={<Guarded><AppShell /></Guarded>}>
-            <Route index element={<Navigate to="/chat" replace />} />
+            <Route index element={<Navigate to="/copilot" replace />} />
+            {/* Primary agent-first tabs */}
+            <Route path="copilot" element={<CopilotPage />} />
+            <Route path="work" element={<WorkPage />} />
+            <Route path="activity" element={<ActivityPage />} />
+            {/* Pushed screens */}
             <Route path="chat" element={<ChatHomePage />} />
             <Route path="chat/:threadId" element={<ChatThreadPage />} />
-            <Route path="documents" element={<DocumentsListPage />} />
             <Route path="documents/new" element={<NewDocumentPage />} />
             <Route path="documents/:id" element={<DocumentEditorPage />} />
-            <Route path="projects" element={<ProjectsListPage />} />
             <Route path="projects/:id" element={<ProjectDashboardPage />} />
             <Route path="settings" element={<SettingsPage />} />
+            {/* Back-compat redirects → unified Work tab */}
+            <Route path="documents" element={<Navigate to="/work?type=documents" replace />} />
+            <Route path="projects" element={<Navigate to="/work?type=projects" replace />} />
           </Route>
         </Routes>
       </BrowserRouter>
