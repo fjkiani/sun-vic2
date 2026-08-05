@@ -132,7 +132,9 @@ async function main() {
         document_id: a.doc.id,
         payload: a.doc.payload,
         locks: {},
-        change_source: 'backfill_lump_sum',
+        // document_revisions.change_source is CHECK-constrained; migration 0008 adds
+        // 'backfill' so maintenance writes stay distinguishable from ordinary activity.
+        change_source: 'backfill',
       }),
     });
     await rest(`documents?id=eq.${a.doc.id}`, {
