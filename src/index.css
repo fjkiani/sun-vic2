@@ -10,6 +10,16 @@
 html, body, #root {
   height: 100%;
 }
+
+/* iOS Safari's `100vh` measures the viewport *behind* the collapsing toolbar, so a
+   `100vh` pane is always taller than the screen and its last rows sit under the chrome.
+   `100dvh` tracks the visible area. Everything full-height uses dvh (or useFillHeight,
+   which measures window.visualViewport directly). */
+@supports (height: 100dvh) {
+  html, body, #root {
+    height: 100dvh;
+  }
+}
 body {
   font-family: 'Inter', 'Liberation Sans', system-ui, sans-serif;
   color: #111827;

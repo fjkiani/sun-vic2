@@ -17,7 +17,7 @@ export function SignInPage() {
 
   if (MOCK_AUTH) {
     return (
-      <div className="min-h-screen grid place-items-center bg-neutral-50 text-neutral-500">
+      <div className="min-h-[100dvh] grid place-items-center bg-neutral-50 text-neutral-500">
         Signing you in…
       </div>
     );
@@ -37,7 +37,7 @@ export function SignInPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-neutral-50 to-sunvic-50 grid place-items-center px-4">
+    <div className="min-h-[100dvh] bg-gradient-to-br from-neutral-50 to-sunvic-50 grid place-items-center px-4">
       <div className="w-full max-w-md bg-white rounded-2xl shadow-xl border border-neutral-200 p-8">
         <div className="flex items-center gap-2 mb-6">
           <div className="w-10 h-10 rounded-lg bg-sunvic-500 text-white grid place-items-center font-bold">S</div>

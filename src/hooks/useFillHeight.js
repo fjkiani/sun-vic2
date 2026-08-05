@@ -60,9 +60,12 @@ export function useFillHeight(ref, { bottomGap = 0, min = 240 } = {}) {
 }
 
 // Height of the mobile bottom tab bar plus the iOS home-indicator inset, in px.
-// Read once per call so it tracks orientation changes.
+// The bar is `md:hidden`, so at md+ there is nothing to clear and the gap is 0 —
+// otherwise every desktop pane would be short by a phantom 72px.
+// Read once per call so it tracks orientation and breakpoint changes.
 export function bottomBarGap() {
   if (typeof window === 'undefined') return 72;
+  if (window.matchMedia?.('(min-width: 768px)')?.matches) return 0;
   const probe = window.getComputedStyle(document.documentElement).getPropertyValue('--safe-bottom');
   const inset = Number.parseInt(probe, 10);
   return 72 + (Number.isFinite(inset) ? inset : 0);

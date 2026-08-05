@@ -7,6 +7,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api.js';
 import { useModelChoice } from '../components/ModelPickerDropdown.jsx';
+import { useFillHeight, bottomBarGap } from '../hooks/useFillHeight.js';
 
 const STAGE_TONE = {
   gathering: 'bg-amber-100 text-amber-800',
@@ -159,6 +160,8 @@ export function ChatThreadPage() {
   const nav = useNavigate();
   const qc = useQueryClient();
 
+  const paneRef = useRef(null);
+  const paneHeight = useFillHeight(paneRef, { bottomGap: bottomBarGap() + 8 });
   const [input, setInput] = useState('');
   const [error, setError] = useState(null);
   const [pendingDocs, setPendingDocs] = useState([]); // docs from the last turn response
@@ -237,7 +240,7 @@ export function ChatThreadPage() {
   }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-8rem)] max-w-4xl mx-auto">
+    <div ref={paneRef} style={{ height: paneHeight }} className="flex flex-col max-w-4xl mx-auto">
       {/* Header */}
       <div className="flex items-center gap-3 mb-3">
         <button onClick={() => nav('/chat')}
@@ -309,18 +312,18 @@ export function ChatThreadPage() {
       </div>
 
       {/* Composer */}
-      <form onSubmit={onSend} className="mt-3 flex gap-2">
+      <form onSubmit={onSend} className="mt-3 flex gap-2 flex-shrink-0">
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
           disabled={mutation.isPending}
           placeholder="Message the agent…"
-          className="flex-1 rounded-md border border-neutral-300 px-3 py-2 text-sm focus:ring-2 focus:ring-sunvic-500 focus:outline-none"
+          className="flex-1 min-w-0 rounded-xl border border-neutral-300 px-3 min-h-[48px] text-base md:text-sm focus:ring-2 focus:ring-sunvic-500 focus:outline-none"
         />
         <button
           type="submit"
           disabled={mutation.isPending || !input.trim()}
-          className="px-4 py-2 rounded-md bg-sunvic-500 hover:bg-sunvic-600 text-white text-sm font-semibold disabled:opacity-60">
+          className="px-5 min-h-[48px] rounded-xl bg-sunvic-500 hover:bg-sunvic-600 text-white text-sm font-semibold disabled:opacity-60 flex-shrink-0">
           Send
         </button>
       </form>
