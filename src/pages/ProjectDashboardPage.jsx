@@ -12,6 +12,7 @@ import { ProjectSummaryCard } from '../components/dashboard/ProjectSummaryCard.j
 import { PipelineKanban } from '../components/dashboard/PipelineKanban.jsx';
 import { MoneyChart } from '../components/dashboard/MoneyChart.jsx';
 import { MilestoneTimeline } from '../components/dashboard/MilestoneTimeline.jsx';
+import { ProjectCopilotCard } from '../components/dashboard/ProjectCopilotCard.jsx';
 
 export function ProjectDashboardPage() {
   const { id } = useParams();
@@ -87,6 +88,9 @@ export function ProjectDashboardPage() {
           </Link>
         </div>
       </div>
+
+      {/* Row 0: copilot — agent handles the work, human reviews */}
+      <ProjectCopilotCard project={localProject} />
 
       {/* Row 1: summary card (full width) */}
       <ProjectSummaryCard project={localProject} money={money} onSave={savePatch} />
