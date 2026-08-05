@@ -137,8 +137,8 @@ eq(scheduleIssues({ payment: { schedule: CANONICAL } }, 'invoice').length, 0,
 
   const drifted = moneyIssues({ payment: { labor_cost_cents: 4550000, materials_cost_cents: 1000000, total_cents: 6500000 } }, 'contract');
   has(drifted, 'labor_materials_mismatch', 'Labor + materials != total is flagged');
-  ok(/\$9,500/.test(drifted[0].message), 'Mismatch message names the dollar gap', drifted[0].message);
-  ok(drifted[0].deliveryBlocking, 'Mismatch blocks delivery even though it is a warning while editing');
+  ok(/\$9,500/.test(drifted[0]?.message), 'Mismatch message names the dollar gap', drifted[0]?.message);
+  ok(!!drifted[0]?.deliveryBlocking, 'Mismatch blocks delivery even though it is a warning while editing');
 
   ok(Math.abs(MONEY_TOLERANCE_CENTS) === 100, 'Money tolerance is one dollar');
   lacks(moneyIssues({ payment: { labor_cost_cents: 100, materials_cost_cents: 0, total_cents: 200 } }, 'contract'),
@@ -225,8 +225,8 @@ ok(requiredFieldIssues(contract({ payment: { total_cents: 0, schedule: CANONICAL
   for (const status of GUARDED_WRITE_STATUSES) {
     const g = writeGuard({ status, confirmed: false });
     ok(!!g, `Writing to a ${status} document requires confirmation`);
-    eq(g.code, 'confirmation_required', `...with code confirmation_required (${status})`);
-    ok(g.message.includes(status), `...and the message names the status (${status})`);
+    eq(g?.code, 'confirmation_required', `...with code confirmation_required (${status})`);
+    ok(!!g?.message?.includes(status), `...and the message names the status (${status})`);
     ok(!writeGuard({ status, confirmed: true }), `Confirmed write to ${status} proceeds`);
     ok(!writeGuard({ status, confirmed: false, hasPayloadChange: false }),
       `A no-op write to ${status} needs no confirmation`);
@@ -275,8 +275,8 @@ ok(requiredFieldIssues(contract({ payment: { total_cents: 0, schedule: CANONICAL
     payload: contract({ payment: { total_cents: 6500000, labor_cost_cents: 4550000, materials_cost_cents: 1950000, schedule: sched(15, 20, 30, 15, 15) } }),
   });
   ok(!!g, 'A 95% schedule blocks the transition to sent');
-  eq(g.code, 'validation_failed', '...with code validation_failed');
-  ok(g.message.includes('95%'), '...naming the actual sum', g.message);
+  eq(g?.code, 'validation_failed', '...with code validation_failed');
+  ok(!!g?.message?.includes('95%'), '...naming the actual sum', g?.message);
   ok(!statusTransitionGuard({ from: 'draft', to: 'void', payload: contract({ payment: { total_cents: 0, schedule: [] } }), template: 'contract' }),
     'Voiding an incomplete document is always allowed');
   ok(!statusTransitionGuard({ from: 'sent', to: 'sent', payload: contract(), template: 'contract' }),
