@@ -3,6 +3,7 @@ import { api } from '../../lib/api.js';
 import { useModelChoice } from '../ModelPickerDropdown.jsx';
 import { buildScopedMessage, scopePlaceholder, scopeSuggestions } from '../../lib/agentScope.js';
 import { useAgentFocus } from '../../lib/agentFocus.js';
+import { AgentTurnDetail } from './AgentTurnDetail.jsx';
 
 // The copilot, docked at the bottom of every document tab (plan decision 4).
 //
@@ -105,24 +106,9 @@ export function DocAskBar({ document: doc, scope = {}, onDocumentUpdate, classNa
               </ul>
             </div>
           )}
-          {result?.tools?.length > 0 && (
-            <div className="flex flex-wrap gap-1 mb-1.5">
-              {result.tools.map((t, i) => (
-                <span key={i} className="text-[11px] bg-sunvic-50 border border-sunvic-200 text-sunvic-800 rounded-full px-2 py-0.5">
-                  ✓ {t.tool}
-                </span>
-              ))}
-            </div>
-          )}
-          {result?.refused?.length > 0 && (
-            <div className="flex flex-wrap gap-1 mb-1.5">
-              {result.refused.map((r, i) => (
-                <span key={i} className="text-[11px] bg-amber-50 border border-amber-200 text-amber-800 rounded-full px-2 py-0.5">
-                  🔒 {r.tool || r.reason}{r.path || r.field ? ` (${r.path || r.field})` : ''}
-                </span>
-              ))}
-            </div>
-          )}
+          {/* Same renderer the Copilot page uses — one component, so the two surfaces cannot
+              report the agent's work differently. */}
+          <AgentTurnDetail tools={result?.tools} refused={result?.refused} className="mb-1.5" />
           {result?.reply && <div className="text-neutral-700 whitespace-pre-wrap">{result.reply}</div>}
           {result && (
             <button

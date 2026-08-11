@@ -42,6 +42,7 @@ import {
   nextRequiredSlot,
   missingRequiredSlots,
   coerceSlotValue,
+  foreignSlotHits,
 } from './thread-slots.js';
 
 const MAX_CLARIFY_TURNS = 3;
@@ -258,23 +259,51 @@ async function resolveDocRef(user, identifier) {
 
 // Try to write user's message into thread.pending_slot. Returns { key, value } if
 // successful, else { key, error }.
-function absorbPendingSlot(template, pendingSlotKey, userMessage) {
+// Exported so tests exercise the real function rather than a copy of it. A mirrored copy in a
+// test is how the verbatim-message bug survived: the unit tests never ran this code path.
+export function absorbPendingSlot(template, pendingSlotKey, userMessage) {
   if (!pendingSlotKey) return null;
   const def = slotByKey(template, pendingSlotKey);
   if (!def) return null;
 
-  // For most slots, try the extractor first (which handles ambiguous free text),
-  // then fall back to raw coercion for the case where the user answered directly.
+  // 1. A liberal extractor that only exists because we KNOW this slot was just asked. Safe
+  //    here in a way it would not be inside autoFillSlots, which scans the whole thread.
+  let answered = null;
+  try { answered = def.answerExtract ? def.answerExtract(userMessage) : null; } catch { answered = null; }
+  if (answered != null) {
+    const c = coerceSlotValue(def, answered);
+    if (c.ok) return { key: def.key, value: c.value, via: 'answer' };
+  }
+
+  // 2. The conservative context-free extractor.
   let extracted = null;
   try { extracted = def.extract ? def.extract(userMessage) : null; } catch { extracted = null; }
   if (extracted != null) {
     const coerced = coerceSlotValue(def, extracted);
-    if (coerced.ok) return { key: def.key, value: coerced.value };
+    if (coerced.ok) return { key: def.key, value: coerced.value, via: 'extract' };
   }
-  // Try direct coercion of the raw message.
+
+  // 3. Last resort is writing the message in verbatim, and that is where real damage happened:
+  //    a contract was generated with homeowner.name = "Jane Smith, full gut renovation at 36
+  //    Bushnell Rd, $65,000, starting September 1 2026." because coerceSlotValue accepts any
+  //    non-empty string for type:'string'. The fallback is still load-bearing ("Jane Smith"
+  //    fails every pattern above and must be accepted), so it is gated rather than removed.
   const raw = String(userMessage || '').trim();
+
+  //    3a. If the message carries other slots' content it is a compound sentence, not an
+  //        answer. Refuse; autoFillSlots below will harvest what it can and the agent re-asks.
+  const foreign = foreignSlotHits(template, def.key, userMessage);
+  if (foreign.length > 0) {
+    return { key: def.key, error: 'compound_message', foreign };
+  }
+
+  //    3b. Slot-specific shape check, so "i dont know yet" never becomes a legal name.
+  if (def.validateRaw && !def.validateRaw(raw)) {
+    return { key: def.key, error: 'raw_rejected' };
+  }
+
   const direct = coerceSlotValue(def, raw);
-  if (direct.ok) return { key: def.key, value: direct.value };
+  if (direct.ok) return { key: def.key, value: direct.value, via: 'raw' };
 
   return { key: def.key, error: direct.error || 'coerce_failed' };
 }

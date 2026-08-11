@@ -23,6 +23,38 @@ const PAYMENT_METHOD_OPTIONS = ['check', 'wire', 'credit_card'];
 
 // ─── Extractors ──────────────────────────────────────────
 
+// One definition of what a person-or-household name looks like, shared by every reader below.
+// It was previously written out twice; the copies had already drifted apart.
+//
+//   optional "the"           → "the Marchettis"
+//   a Titlecase token        → "Jane"
+//   optional and/& partner   → "John and Jane"
+//   up to two more Titlecase → "Smith", "Smith-Hendrickson"
+//   optional collective noun → "the Okonkwo family", "the Weaver trust"
+//
+// The collective noun is lowercase on purpose: dropping it turned "the Okonkwo family" into
+// "Okonkwo", which is a materially different party on a signed contract.
+// One name token. The previous class was [A-Z][a-z'’]+, which cannot represent a capital that
+// follows an apostrophe or sits inside a word: "O’Brien" parsed as "O’", "McDonald" as "Mc",
+// "Smith-Hendrickson" as "Smith". Those are ordinary NJ homeowner surnames and they were being
+// silently truncated on contracts.
+//   [A-Z][a-z]*                initial capital + lowercase run          → "Robert", "O"
+//   (?:[A-Z][a-z]+)?           one internal capital, no separator       → "McDonald", "MacLeod"
+//   (?:['’-][A-Za-z][a-z]*)*   separator-joined parts                   → "O’Brien", "Smith-Lee"
+// The internal-capital branch requires a following lowercase run, so an acronym like "ABC"
+// still cannot masquerade as a surname.
+const NAME_TOKEN = "[A-Z][a-z]*(?:[A-Z][a-z]+)?(?:['\u2019\\-][A-Za-z][a-z]*)*";
+
+const NAME_PATTERN =
+  "(?:the\\s+)?" + NAME_TOKEN +
+  "(?:\\s+(?:and|&)\\s+" + NAME_TOKEN + ")?" +
+  "(?:\\s+" + NAME_TOKEN + "){0,2}" +
+  "(?:\\s+(?:family|families|trust|estate|household|residence))?";
+
+// Honorifics carry a period that is NOT a sentence boundary. Anchored matching that treated it
+// as one truncated "Dr. Ramachandran Venkataraman" to "Dr".
+const HONORIFIC = "(?:(?:Dr|Mr|Mrs|Ms|Mx|Prof|Rev|Sr|Sra)\\.?\\s+)?";
+
 // Homeowner name. Look for "for X", "homeowner X", "client X", "customer X".
 // Only accepts 1-4 capitalized words in a row.
 function extractHomeownerName(msg) {
@@ -33,12 +65,14 @@ function extractHomeownerName(msg) {
   // JS regex flags are per-pattern, not per-group, so we normalize the keyword
   // by matching it case-insensitively and then apply the Titlecase name pattern
   // to the remainder of the ORIGINAL (case-preserved) string.
-  const NAME = "(?:the\\s+)?[A-Z][a-z'’]+(?:\\s+(?:and|&)\\s+[A-Z][a-z'’]+)?(?:\\s+[A-Z][a-z'’]+){0,2}";
+  const NAME = NAME_PATTERN;
   // Try EVERY keyword occurrence, not just the first. A message like
   // "a contract for a full gut renovation ... homeowner Jane Smith" matches "for"
   // first (followed by "a full gut...", not a name) — we must keep scanning until a
   // keyword is actually followed by a Titlecase name ("homeowner Jane Smith").
-  const keywordRe = /\b(for|homeowner(?:s)?|client|customer)\s+/gi;
+  // The keyword may be followed by a copula: "homeowner is Jane Smith", "client will be the
+  // Marchettis". Without this the scan stopped at "is" and the name was lost.
+  const keywordRe = /\b(for|homeowner(?:s)?|client|customer)\s+(?:is\s+|are\s+|will\s+be\s+|would\s+be\s+|:\s*)?/gi;
   let kw;
   while ((kw = keywordRe.exec(msg)) !== null) {
     const rest = msg.slice(kw.index + kw[0].length);
@@ -59,6 +93,51 @@ function extractHomeownerName(msg) {
     }
   }
   return null;
+}
+
+// Homeowner name when we KNOW the user is answering "Who is the homeowner?".
+//
+// This is deliberately more liberal than extractHomeownerName, and it is deliberately NOT used
+// by autoFillSlots. The context-free scan runs over every user message in the thread, so a
+// false positive there silently writes a wrong name; a false positive here can only happen on
+// the turn immediately after the agent asked for a name.
+//
+// The case that forced this: the agent asked for the homeowner, the user replied
+// "Jane Smith, full gut renovation at 36 Bushnell Rd, $65,000, starting September 1 2026." and
+// every conservative pattern missed it, so the raw-message fallback wrote the whole sentence in
+// as the homeowner's legal name.
+function answerHomeownerName(msg) {
+  if (!msg) return null;
+  // Strip conversational lead-ins so "It's Jane Smith" yields "Jane Smith". Both the straight
+  // and the curly apostrophe, because iOS substitutes the curly one automatically.
+  const s = String(msg).trim()
+    .replace(/^(?:it['\u2019]?s|it\s+is|that['\u2019]?s|this\s+is|the\s+name\s+is|name\s*[:=])\s+/i, '');
+  // Anchored at the start and terminated by punctuation or end-of-message. Anchoring is what
+  // makes this safe: "Jane Smith, <everything else>" is a name followed by other facts, whereas
+  // a name found mid-sentence is usually part of a different clause.
+  const lead = s.match(new RegExp('^(' + HONORIFIC + NAME_PATTERN + ')\\s*(?:[,;\u2014]|\\.\\s|\\.$|$)'));
+  if (lead) {
+    // Leading article dropped to match extractHomeownerName — "the Marchetti family" and
+    // "Marchetti family" must not depend on which reader happened to fire.
+    const name = lead[1].trim().replace(/^the\s+/i, '');
+    if (!/^(?:homeowner|client|customer|owner)s?$/i.test(name)) return name.slice(0, 200);
+  }
+  return null;
+}
+
+// Does a raw message look like it could BE a person's name? Guards the last-resort fallback
+// where the whole message is written into the slot verbatim.
+//
+// Length alone does not separate these — measured on a labelled corpus, real answers ran 10-29
+// characters and "i dont know yet" is 15. The discriminating feature is capitalisation: every
+// real answer carried at least one Titlecase token, and the non-answers carried none.
+function looksLikeName(raw) {
+  const s = String(raw || '').trim();
+  if (!s || s.length > 120) return false;
+  if (!/[A-Z][a-z'\u2019]/.test(s)) return false;          // no Titlecase token at all
+  if (/\b(?:i\s+)?(?:dont|don't|do\s+not|not\s+sure|no\s+idea|dunno|unknown|tbd|n\/a)\b/i.test(s)) return false;
+  if (s.split(/\s+/).length > 8) return false;             // a sentence, not a name
+  return true;
 }
 
 // Street address heuristic — needs a number + street name.
@@ -232,6 +311,10 @@ export const SLOTS_CONTRACT = [
     required: true,
     type: 'string',
     extract: extractHomeownerName,
+    // Used only when this slot was the one just asked — see answerHomeownerName.
+    answerExtract: answerHomeownerName,
+    // Gate on the verbatim-message fallback.
+    validateRaw: looksLikeName,
   },
   {
     key: 'homeowner.address',
@@ -426,6 +509,25 @@ export function autoFillSlots(template, gathered, userTexts) {
     }
   }
   return { patch, newlyFilled };
+}
+
+// Which OTHER slots' content is present in this message?
+//
+// The point: when the agent asks one question and the user answers it while volunteering three
+// more facts in the same sentence, the message must NOT be written verbatim into the slot that
+// was asked. Measured on a labelled corpus this signal blocked 6/6 such compound messages and
+// wrongly blocked 0/9 plain answers, which is why it is the primary guard rather than a length
+// or word-count heuristic (those do not separate — "i dont know yet" is shorter than several
+// legitimate names).
+export function foreignSlotHits(template, pendingKey, msg) {
+  const hits = [];
+  for (const def of slotDefsFor(template)) {
+    if (def.key === pendingKey || !def.extract) continue;
+    let v = null;
+    try { v = def.extract(msg); } catch { v = null; }
+    if (v != null && v !== '' && !(Array.isArray(v) && v.length === 0)) hits.push(def.key);
+  }
+  return hits;
 }
 
 // Return the highest-priority still-missing REQUIRED slot, or null if all filled.

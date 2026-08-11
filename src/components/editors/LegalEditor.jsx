@@ -155,7 +155,7 @@ function BlockBody({ id, p, set }) {
         <div className="space-y-3">
           <ResponsibilityChoice p={p} set={set} />
           <Card>
-            <FieldRow label="Opening paragraph" value={preview(p.permits?.intro)} hint="Printed above the responsibility boxes on the contract.">
+            <FieldRow label="Opening paragraph" value={preview(p.permits?.intro)} hint="Printed above the responsibility boxes on the contract." path="permits.intro">
               <TextField multiline rows={5} value={p.permits?.intro || ''} onChange={(v) => set({ 'permits.intro': v })} />
             </FieldRow>
           </Card>
@@ -165,7 +165,7 @@ function BlockBody({ id, p, set }) {
     case 'change_orders':
       return (
         <Card>
-          <FieldRow label="Change order terms" value={preview(p.change_orders?.text)} defaultOpen>
+          <FieldRow label="Change order terms" value={preview(p.change_orders?.text)} defaultOpen path="change_orders.text">
             <TextField multiline rows={9} value={p.change_orders?.text || ''} onChange={(v) => set({ 'change_orders.text': v })} />
           </FieldRow>
         </Card>
@@ -174,7 +174,7 @@ function BlockBody({ id, p, set }) {
     case 'material_selection':
       return (
         <Card>
-          <FieldRow label="Material selection terms" value={preview(p.material_selection?.text)} defaultOpen>
+          <FieldRow label="Material selection terms" value={preview(p.material_selection?.text)} defaultOpen path="material_selection.text">
             <TextField multiline rows={9} value={p.material_selection?.text || ''} onChange={(v) => set({ 'material_selection.text': v })} />
           </FieldRow>
         </Card>
@@ -183,7 +183,7 @@ function BlockBody({ id, p, set }) {
     case 'invoice_terms':
       return (
         <Card>
-          <FieldRow label="Invoicing terms" value={preview(p.invoice_terms?.text)} defaultOpen>
+          <FieldRow label="Invoicing terms" value={preview(p.invoice_terms?.text)} defaultOpen path="invoice_terms.text">
             <TextField multiline rows={9} value={p.invoice_terms?.text || ''} onChange={(v) => set({ 'invoice_terms.text': v })} />
           </FieldRow>
         </Card>
@@ -192,13 +192,13 @@ function BlockBody({ id, p, set }) {
     case 'warranties':
       return (
         <Card>
-          <FieldRow label="Warranty terms" value={preview(p.warranties?.text)} defaultOpen>
+          <FieldRow label="Warranty terms" value={preview(p.warranties?.text)} defaultOpen path="warranties.text">
             <TextField multiline rows={7} value={p.warranties?.text || ''} onChange={(v) => set({ 'warranties.text': v })} />
           </FieldRow>
-          <FieldRow label="When cover starts" value={preview(p.warranties?.start_text)} hint="The sentence that fixes the warranty start date.">
+          <FieldRow label="When cover starts" value={preview(p.warranties?.start_text)} hint="The sentence that fixes the warranty start date." path="warranties.start_text">
             <TextField multiline rows={4} value={p.warranties?.start_text || ''} onChange={(v) => set({ 'warranties.start_text': v })} />
           </FieldRow>
-          <FieldRow label="Manufacturer warranties" value={preview(p.warranties?.materials_text)} hint="How product warranties pass through to the homeowner.">
+          <FieldRow label="Manufacturer warranties" value={preview(p.warranties?.materials_text)} hint="How product warranties pass through to the homeowner." path="warranties.materials_text">
             <TextField multiline rows={4} value={p.warranties?.materials_text || ''} onChange={(v) => set({ 'warranties.materials_text': v })} />
           </FieldRow>
         </Card>
@@ -207,7 +207,7 @@ function BlockBody({ id, p, set }) {
     case 'insurance':
       return (
         <Card>
-          <FieldRow label="Insurance statement" value={preview(p.insurance?.text)} defaultOpen>
+          <FieldRow label="Insurance statement" value={preview(p.insurance?.text)} defaultOpen path="insurance.text">
             <TextField multiline rows={7} value={p.insurance?.text || ''} onChange={(v) => set({ 'insurance.text': v })} />
           </FieldRow>
         </Card>
@@ -216,13 +216,13 @@ function BlockBody({ id, p, set }) {
     case 'unforeseen':
       return (
         <Card>
-          <FieldRow label="Opening paragraph" value={preview(p.unforeseen?.text)} defaultOpen>
+          <FieldRow label="Opening paragraph" value={preview(p.unforeseen?.text)} defaultOpen path="unforeseen.text">
             <TextField multiline rows={6} value={p.unforeseen?.text || ''} onChange={(v) => set({ 'unforeseen.text': v })} />
           </FieldRow>
-          <FieldRow label="Option 1" value={preview(p.unforeseen?.option_1)} hint="The first choice offered to the homeowner when hidden damage is found.">
+          <FieldRow label="Option 1" value={preview(p.unforeseen?.option_1)} hint="The first choice offered to the homeowner when hidden damage is found." path="unforeseen.option_1">
             <TextField multiline rows={5} value={p.unforeseen?.option_1 || ''} onChange={(v) => set({ 'unforeseen.option_1': v })} />
           </FieldRow>
-          <FieldRow label="Option 2" value={preview(p.unforeseen?.option_2)} hint="The alternative choice.">
+          <FieldRow label="Option 2" value={preview(p.unforeseen?.option_2)} hint="The alternative choice." path="unforeseen.option_2">
             <TextField multiline rows={5} value={p.unforeseen?.option_2 || ''} onChange={(v) => set({ 'unforeseen.option_2': v })} />
           </FieldRow>
         </Card>
@@ -236,7 +236,7 @@ function BlockBody({ id, p, set }) {
             cancellation requirement. Editing it can make the contract unenforceable.
           </div>
           <Card>
-            <FieldRow label="Cancellation notice" value={preview(p.right_to_cancel?.text)}>
+            <FieldRow label="Cancellation notice" value={preview(p.right_to_cancel?.text)} path="right_to_cancel.text">
               <TextField multiline rows={12} value={p.right_to_cancel?.text || ''} onChange={(v) => set({ 'right_to_cancel.text': v })} />
             </FieldRow>
           </Card>
@@ -247,7 +247,7 @@ function BlockBody({ id, p, set }) {
       return (
         <div className="space-y-3">
           <Card>
-            <FieldRow label="Opening paragraph" value={preview(p.dispute_resolution?.intro)} defaultOpen>
+            <FieldRow label="Opening paragraph" value={preview(p.dispute_resolution?.intro)} defaultOpen path="dispute_resolution.intro">
               <TextField multiline rows={4} value={p.dispute_resolution?.intro || ''} onChange={(v) => set({ 'dispute_resolution.intro': v })} />
             </FieldRow>
           </Card>
@@ -256,7 +256,7 @@ function BlockBody({ id, p, set }) {
             <StepsEditor steps={p.dispute_resolution?.steps} set={set} />
           </div>
           <Card>
-            <FieldRow label="Closing paragraph" value={preview(p.dispute_resolution?.footer)}>
+            <FieldRow label="Closing paragraph" value={preview(p.dispute_resolution?.footer)} path="dispute_resolution.footer">
               <TextField multiline rows={4} value={p.dispute_resolution?.footer || ''} onChange={(v) => set({ 'dispute_resolution.footer': v })} />
             </FieldRow>
           </Card>
@@ -267,16 +267,16 @@ function BlockBody({ id, p, set }) {
       return (
         <div className="space-y-3">
           <Card>
-            <FieldRow label="Signature page introduction" value={preview(p.signature?.intro)}>
+            <FieldRow label="Signature page introduction" value={preview(p.signature?.intro)} path="signature.intro">
               <TextField multiline rows={5} value={p.signature?.intro || ''} onChange={(v) => set({ 'signature.intro': v })} />
             </FieldRow>
-            <FieldRow label="Contractor printed name" value={p.signature?.contractor?.printed_name}>
+            <FieldRow label="Contractor printed name" value={p.signature?.contractor?.printed_name} path="signature.contractor.printed_name">
               <TextField
                 value={p.signature?.contractor?.printed_name || ''}
                 onChange={(v) => set({ 'signature.contractor.printed_name': v })}
               />
             </FieldRow>
-            <FieldRow label="Homeowner printed name" value={p.signature?.homeowner?.printed_name} hint="Must match the name on the cover page.">
+            <FieldRow label="Homeowner printed name" value={p.signature?.homeowner?.printed_name} hint="Must match the name on the cover page." path="signature.homeowner.printed_name">
               <TextField
                 value={p.signature?.homeowner?.printed_name || ''}
                 onChange={(v) => set({ 'signature.homeowner.printed_name': v })}

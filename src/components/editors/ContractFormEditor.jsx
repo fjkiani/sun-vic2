@@ -350,20 +350,20 @@ function ScheduleEditor({ payload, onSave }) {
 function CoverBlock({ payload, locks, set, onToggleLock }) {
   return (
     <Card>
-      <FieldRow label="Job number" value={payload.job_no} hint="Your internal reference for this job.">
+      <FieldRow label="Job number" value={payload.job_no} hint="Your internal reference for this job." path="job_no">
         <TextField value={payload.job_no || ''} onChange={(v) => set('job_no', v)} />
         <LockToggle locked={!!locks['job_no']} onToggle={onToggleLock && (() => onToggleLock('job_no'))} />
       </FieldRow>
-      <FieldRow label="Prepared on" value={humanDate(payload.prepared_on)}>
+      <FieldRow label="Prepared on" value={humanDate(payload.prepared_on)} path="prepared_on">
         <TextField type="date" value={fmtDate(payload.prepared_on)} onChange={(v) => set('prepared_on', v)} />
         <LockToggle locked={!!locks['prepared_on']} onToggle={onToggleLock && (() => onToggleLock('prepared_on'))} />
       </FieldRow>
       <Advanced>
-        <FieldRow label="Cover heading" value={payload.for_label} hint="The line that appears under “Prepared for” on the cover page.">
+        <FieldRow label="Cover heading" value={payload.for_label} hint="The line that appears under “Prepared for” on the cover page." path="for_label">
           <TextField value={payload.for_label || ''} onChange={(v) => set('for_label', v)} />
           <LockToggle locked={!!locks['for_label']} onToggle={onToggleLock && (() => onToggleLock('for_label'))} />
         </FieldRow>
-        <FieldRow label="Contract type" value={payload.contract_type} hint="Printed on the cover page. Leave as the standard fixed-price wording unless this job is billed differently.">
+        <FieldRow label="Contract type" value={payload.contract_type} hint="Printed on the cover page. Leave as the standard fixed-price wording unless this job is billed differently." path="contract_type">
           <TextField value={payload.contract_type || ''} onChange={(v) => set('contract_type', v)} />
           <LockToggle locked={!!locks['contract_type']} onToggle={onToggleLock && (() => onToggleLock('contract_type'))} />
         </FieldRow>
@@ -376,19 +376,19 @@ function HomeownerBlock({ payload, locks, set, onToggleLock }) {
   const h = payload.homeowner || {};
   return (
     <Card>
-      <FieldRow label="Full name" value={h.name} required hint="Exactly as it should appear on the signature page.">
+      <FieldRow label="Full name" value={h.name} required hint="Exactly as it should appear on the signature page." path="homeowner.name">
         <TextField value={h.name || ''} onChange={(v) => set('homeowner.name', v)} placeholder="Jane Smith" />
         <LockToggle locked={!!locks['homeowner.name']} onToggle={onToggleLock && (() => onToggleLock('homeowner.name'))} />
       </FieldRow>
-      <FieldRow label="Job address" value={h.address} required hint="Where the work happens. This is the address printed on the contract.">
+      <FieldRow label="Job address" value={h.address} required hint="Where the work happens. This is the address printed on the contract." path="homeowner.address">
         <TextField multiline rows={2} value={h.address || ''} onChange={(v) => set('homeowner.address', v)} placeholder="12 Maple Ave, Edison, NJ 08817" />
         <LockToggle locked={!!locks['homeowner.address']} onToggle={onToggleLock && (() => onToggleLock('homeowner.address'))} />
       </FieldRow>
-      <FieldRow label="Phone" value={h.phone}>
+      <FieldRow label="Phone" value={h.phone} path="homeowner.phone">
         <TextField type="tel" value={h.phone || ''} onChange={(v) => set('homeowner.phone', v)} />
         <LockToggle locked={!!locks['homeowner.phone']} onToggle={onToggleLock && (() => onToggleLock('homeowner.phone'))} />
       </FieldRow>
-      <FieldRow label="Email" value={h.email} hint="Used when you email this document.">
+      <FieldRow label="Email" value={h.email} hint="Used when you email this document." path="homeowner.email">
         <TextField type="email" value={h.email || ''} onChange={(v) => set('homeowner.email', v)} />
         <LockToggle locked={!!locks['homeowner.email']} onToggle={onToggleLock && (() => onToggleLock('homeowner.email'))} />
       </FieldRow>
@@ -403,23 +403,23 @@ function ContractorBlock({ payload, set }) {
       <p className="px-3 pt-3 text-xs text-neutral-500 leading-snug">
         Filled from your business settings. Change these only if this job is issued under different details.
       </p>
-      <FieldRow label="Legal name" value={c.legal_name}>
+      <FieldRow label="Legal name" value={c.legal_name} path="contractor.legal_name">
         <TextField value={c.legal_name || ''} onChange={(v) => set('contractor.legal_name', v)} />
       </FieldRow>
-      <FieldRow label="License number" value={c.license_number} hint="NJ Home Improvement Contractor registration number.">
+      <FieldRow label="License number" value={c.license_number} hint="NJ Home Improvement Contractor registration number." path="contractor.license_number">
         <TextField value={c.license_number || ''} onChange={(v) => set('contractor.license_number', v)} />
       </FieldRow>
       <Advanced>
-        <FieldRow label="Address" value={c.address}>
+        <FieldRow label="Address" value={c.address} path="contractor.address">
           <TextField multiline rows={2} value={c.address || ''} onChange={(v) => set('contractor.address', v)} />
         </FieldRow>
-        <FieldRow label="Phone" value={c.phone}>
+        <FieldRow label="Phone" value={c.phone} path="contractor.phone">
           <TextField type="tel" value={c.phone || ''} onChange={(v) => set('contractor.phone', v)} />
         </FieldRow>
-        <FieldRow label="Email" value={c.email}>
+        <FieldRow label="Email" value={c.email} path="contractor.email">
           <TextField type="email" value={c.email || ''} onChange={(v) => set('contractor.email', v)} />
         </FieldRow>
-        <FieldRow label="Website" value={c.website}>
+        <FieldRow label="Website" value={c.website} path="contractor.website">
           <TextField value={c.website || ''} onChange={(v) => set('contractor.website', v)} />
         </FieldRow>
       </Advanced>
@@ -435,17 +435,17 @@ function AgreementBlock({ payload, set }) {
         label="Opening paragraph"
         value={a.text ? `${String(a.text).slice(0, 60)}…` : ''}
         hint="The full body of Section A, not a short recap. Standard Sunvic wording is filled in for you."
-      >
+       path="agreement_summary.text">
         <TextField multiline rows={8} value={a.text || ''} onChange={(v) => set('agreement_summary.text', v)} />
       </FieldRow>
-      <FieldRow label="Scope recap" value={a.scope_recap} hint="One short paragraph describing the job in plain language.">
+      <FieldRow label="Scope recap" value={a.scope_recap} hint="One short paragraph describing the job in plain language." path="agreement_summary.scope_recap">
         <TextField multiline rows={3} value={a.scope_recap || ''} onChange={(v) => set('agreement_summary.scope_recap', v)} />
       </FieldRow>
       <FieldRow
         label="Time to start"
         value={a.weeks_to_start != null ? `${a.weeks_to_start} weeks after signing` : ''}
         hint="How long after the deposit clears before crews arrive."
-      >
+       path="agreement_summary.weeks_to_start">
         <TextField
           type="number"
           value={a.weeks_to_start ?? ''}
@@ -456,7 +456,7 @@ function AgreementBlock({ payload, set }) {
         label="Time to finish"
         value={a.months_to_complete != null ? `${a.months_to_complete} months` : ''}
         hint="Estimated duration once work starts."
-      >
+       path="agreement_summary.months_to_complete">
         <TextField
           type="number"
           value={a.months_to_complete ?? ''}
@@ -473,7 +473,7 @@ function ScopeBlock({ payload, set }) {
   return (
     <div className="space-y-3">
       <Card>
-        <FieldRow label="Scope introduction" value={scope.intro ? `${String(scope.intro).slice(0, 60)}…` : ''} hint="One paragraph summarising everything covered.">
+        <FieldRow label="Scope introduction" value={scope.intro ? `${String(scope.intro).slice(0, 60)}…` : ''} hint="One paragraph summarising everything covered." path="scope_of_work.intro">
           <TextField multiline rows={4} value={scope.intro || ''} onChange={(v) => set('scope_of_work.intro', v)} />
         </FieldRow>
       </Card>
@@ -532,13 +532,13 @@ function PaymentBlock({ payload, set }) {
   return (
     <div className="space-y-3">
       <Card>
-        <FieldRow label="Contract total" value={total ? formatUSD(total) : ''} required hint="The full price the homeowner pays.">
+        <FieldRow label="Contract total" value={total ? formatUSD(total) : ''} required hint="The full price the homeowner pays." path="payment.total_cents">
           <MoneyInput valueCents={total} aria-label="Contract total" onChangeCents={(c) => set('payment.total_cents', c)} />
         </FieldRow>
-        <FieldRow label="Labor" value={labor ? formatUSD(labor) : ''} hint="Labor portion of the total. Used for the cost breakdown and for sales-tax treatment.">
+        <FieldRow label="Labor" value={labor ? formatUSD(labor) : ''} hint="Labor portion of the total. Used for the cost breakdown and for sales-tax treatment." path="payment.labor_cost_cents">
           <MoneyInput valueCents={labor} aria-label="Labor cost" onChangeCents={(c) => set('payment.labor_cost_cents', c)} />
         </FieldRow>
-        <FieldRow label="Materials" value={materials ? formatUSD(materials) : ''} hint="Materials portion of the total. New Jersey sales tax applies to materials only.">
+        <FieldRow label="Materials" value={materials ? formatUSD(materials) : ''} hint="Materials portion of the total. New Jersey sales tax applies to materials only." path="payment.materials_cost_cents">
           <MoneyInput valueCents={materials} aria-label="Materials cost" onChangeCents={(c) => set('payment.materials_cost_cents', c)} />
         </FieldRow>
       </Card>
@@ -556,7 +556,7 @@ function PaymentBlock({ payload, set }) {
       </div>
 
       <Card>
-        <FieldRow label="How they pay" value={{ check: 'Check', ach: 'Bank transfer (ACH)', card: 'Credit or debit card' }[pay.method] || 'Check'}>
+        <FieldRow label="How they pay" value={{ check: 'Check', ach: 'Bank transfer (ACH)', card: 'Credit or debit card' }[pay.method] || 'Check'} path="payment.method">
           <select
             value={pay.method || 'check'}
             onChange={(e) => set('payment.method', e.target.value)}
@@ -567,7 +567,7 @@ function PaymentBlock({ payload, set }) {
             <option value="card">Credit or debit card</option>
           </select>
         </FieldRow>
-        <FieldRow label="Payment notes" value={pay.notes}>
+        <FieldRow label="Payment notes" value={pay.notes} path="payment.notes">
           <TextField multiline rows={3} value={pay.notes || ''} onChange={(v) => set('payment.notes', v)} />
         </FieldRow>
       </Card>
@@ -579,17 +579,17 @@ function TimelineBlock({ payload, set }) {
   const t = payload.timeline || {};
   return (
     <Card>
-      <FieldRow label="Start date" value={humanDate(t.start_date)} required hint="When crews are expected on site.">
+      <FieldRow label="Start date" value={humanDate(t.start_date)} required hint="When crews are expected on site." path="timeline.start_date">
         <TextField type="date" value={fmtDate(t.start_date)} onChange={(v) => set('timeline.start_date', v || null)} />
       </FieldRow>
-      <FieldRow label="Substantial completion" value={humanDate(t.substantial_completion_date)} hint="When the home is usable, even if punch-list items remain.">
+      <FieldRow label="Substantial completion" value={humanDate(t.substantial_completion_date)} hint="When the home is usable, even if punch-list items remain." path="timeline.substantial_completion_date">
         <TextField type="date" value={fmtDate(t.substantial_completion_date)} onChange={(v) => set('timeline.substantial_completion_date', v || null)} />
       </FieldRow>
-      <FieldRow label="Final completion" value={humanDate(t.final_completion_date)} hint="When everything, including punch list, is done.">
+      <FieldRow label="Final completion" value={humanDate(t.final_completion_date)} hint="When everything, including punch list, is done." path="timeline.final_completion_date">
         <TextField type="date" value={fmtDate(t.final_completion_date)} onChange={(v) => set('timeline.final_completion_date', v || null)} />
       </FieldRow>
       <Advanced>
-        <FieldRow label="Timeline disclaimer" value={t.disclaimer ? `${String(t.disclaimer).slice(0, 60)}…` : ''} hint="Standard wording about weather and permit delays.">
+        <FieldRow label="Timeline disclaimer" value={t.disclaimer ? `${String(t.disclaimer).slice(0, 60)}…` : ''} hint="Standard wording about weather and permit delays." path="timeline.disclaimer">
           <TextField multiline rows={4} value={t.disclaimer || ''} onChange={(v) => set('timeline.disclaimer', v)} />
         </FieldRow>
       </Advanced>

@@ -39,16 +39,16 @@ function humanDate(v) {
 function CoverBlock({ p, set }) {
   return (
     <Card>
-      <FieldRow label="Invoice number" value={p.invoice_number}>
+      <FieldRow label="Invoice number" value={p.invoice_number} path="invoice_number">
         <TextField value={p.invoice_number || ''} onChange={(v) => set('invoice_number', v)} />
       </FieldRow>
-      <FieldRow label="Which payment is this" value={p.milestone_label} required hint="The milestone name from the contract, e.g. “Progress Payment (2)”.">
+      <FieldRow label="Which payment is this" value={p.milestone_label} required hint="The milestone name from the contract, e.g. “Progress Payment (2)”." path="milestone_label">
         <TextField value={p.milestone_label || ''} onChange={(v) => set('milestone_label', v)} />
       </FieldRow>
-      <FieldRow label="Why it is due now" value={p.milestone_condition} hint="The condition from the contract schedule that has been met.">
+      <FieldRow label="Why it is due now" value={p.milestone_condition} hint="The condition from the contract schedule that has been met." path="milestone_condition">
         <TextField multiline rows={2} value={p.milestone_condition || ''} onChange={(v) => set('milestone_condition', v)} />
       </FieldRow>
-      <FieldRow label="Contract reference" value={p.contract_ref} hint="The contract number this invoice bills against.">
+      <FieldRow label="Contract reference" value={p.contract_ref} hint="The contract number this invoice bills against." path="contract_ref">
         <TextField value={p.contract_ref || ''} onChange={(v) => set('contract_ref', v)} />
       </FieldRow>
     </Card>
@@ -59,16 +59,16 @@ function BillToBlock({ p, set }) {
   const b = p.bill_to || {};
   return (
     <Card>
-      <FieldRow label="Client name" value={b.client_name} required>
+      <FieldRow label="Client name" value={b.client_name} required path="bill_to.client_name">
         <TextField value={b.client_name || ''} onChange={(v) => set('bill_to.client_name', v)} />
       </FieldRow>
-      <FieldRow label="Property address" value={b.property_address} required hint="The job address, as printed on the invoice.">
+      <FieldRow label="Property address" value={b.property_address} required hint="The job address, as printed on the invoice." path="bill_to.property_address">
         <TextField multiline rows={2} value={b.property_address || ''} onChange={(v) => set('bill_to.property_address', v)} />
       </FieldRow>
-      <FieldRow label="Email" value={b.recipient_email} hint="Where this invoice is sent.">
+      <FieldRow label="Email" value={b.recipient_email} hint="Where this invoice is sent." path="bill_to.recipient_email">
         <TextField type="email" value={b.recipient_email || ''} onChange={(v) => set('bill_to.recipient_email', v)} />
       </FieldRow>
-      <FieldRow label="Phone" value={b.recipient_phone}>
+      <FieldRow label="Phone" value={b.recipient_phone} path="bill_to.recipient_phone">
         <TextField type="tel" value={b.recipient_phone || ''} onChange={(v) => set('bill_to.recipient_phone', v)} />
       </FieldRow>
     </Card>
@@ -136,10 +136,10 @@ function AmountBlock({ p, set, setMany }) {
   return (
     <div className="space-y-3">
       <Card>
-        <FieldRow label="Amount due" value={storedDue ? formatUSD(storedDue) : ''} required hint="What this invoice asks for, including tax.">
+        <FieldRow label="Amount due" value={storedDue ? formatUSD(storedDue) : ''} required hint="What this invoice asks for, including tax." path="totals.total_due_cents">
           <MoneyInput valueCents={storedDue} aria-label="Amount due" onChangeCents={(c) => set('totals.total_due_cents', c)} />
         </FieldRow>
-        <FieldRow label="Percent of contract" value={p.milestone?.percent ? `${p.milestone.percent}%` : ''} hint="This milestone as a share of the full contract price.">
+        <FieldRow label="Percent of contract" value={p.milestone?.percent ? `${p.milestone.percent}%` : ''} hint="This milestone as a share of the full contract price." path="milestone.percent">
           <input
             inputMode="decimal"
             type="text"
@@ -151,7 +151,7 @@ function AmountBlock({ p, set, setMany }) {
             className="w-full min-h-[48px] rounded-xl border border-neutral-300 px-3 text-base tabular-nums focus:border-sunvic-500 focus:ring-2 focus:ring-sunvic-200 focus:outline-none"
           />
         </FieldRow>
-        <FieldRow label="Contract total" value={p.contract?.total_cents ? formatUSD(p.contract.total_cents) : ''} hint="Carried over from the contract, for the running balance.">
+        <FieldRow label="Contract total" value={p.contract?.total_cents ? formatUSD(p.contract.total_cents) : ''} hint="Carried over from the contract, for the running balance." path="contract.total_cents">
           <MoneyInput valueCents={p.contract?.total_cents} aria-label="Contract total" onChangeCents={(c) => set('contract.total_cents', c)} />
         </FieldRow>
       </Card>
@@ -198,7 +198,7 @@ function AmountBlock({ p, set, setMany }) {
             { materials_only: 'materials only', total: 'whole invoice', none: 'not charged' }[p.tax?.applies_to || 'materials_only']
           }`}
           hint="New Jersey charges sales tax on materials, not labor, for most home improvement work."
-        >
+         path="tax.rate_percent">
           <div className="flex gap-2">
             <input
               inputMode="decimal"
@@ -223,7 +223,7 @@ function AmountBlock({ p, set, setMany }) {
             </select>
           </div>
         </FieldRow>
-        <FieldRow label="Payment terms" value={p.invoice_terms?.text ? `${String(p.invoice_terms.text).slice(0, 60)}…` : ''}>
+        <FieldRow label="Payment terms" value={p.invoice_terms?.text ? `${String(p.invoice_terms.text).slice(0, 60)}…` : ''} path="invoice_terms.text">
           <TextField multiline rows={5} value={p.invoice_terms?.text || ''} onChange={(v) => set('invoice_terms.text', v)} />
         </FieldRow>
       </Card>
@@ -307,10 +307,10 @@ function AmountBlock({ p, set, setMany }) {
 function DatesBlock({ p, set }) {
   return (
     <Card>
-      <FieldRow label="Invoice date" value={humanDate(p.invoice_date)} required>
+      <FieldRow label="Invoice date" value={humanDate(p.invoice_date)} required path="invoice_date">
         <TextField type="date" value={fmtDate(p.invoice_date)} onChange={(v) => set('invoice_date', v)} />
       </FieldRow>
-      <FieldRow label="Due date" value={humanDate(p.due_date)} required hint="When payment is expected.">
+      <FieldRow label="Due date" value={humanDate(p.due_date)} required hint="When payment is expected." path="due_date">
         <TextField type="date" value={fmtDate(p.due_date)} onChange={(v) => set('due_date', v)} />
       </FieldRow>
     </Card>

@@ -13,15 +13,20 @@ export function FieldRow({
   defaultOpen = false,
   required = false,
   agentAction,           // optional node, e.g. a section-scoped agent button
+  path,                  // payload path this row edits — makes the row addressable
+  onFocusPath,           // (path) => void, so the PDF can follow the row you are on
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const filled = value !== undefined && value !== null && String(value).trim() !== '';
 
   return (
-    <div className="border-b border-neutral-100 last:border-b-0">
+    // data-field-path is what lets the document scroll to the field you are working on. It is
+    // injected across all 60 rows by scripts/codemod-fieldrow-path.mjs rather than hand-written,
+    // because a partially-tagged form would give silently patchy scroll sync.
+    <div className="border-b border-neutral-100 last:border-b-0" data-field-path={path || undefined}>
       <button
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => { setOpen((o) => !o); if (path) onFocusPath?.(path); }}
         aria-expanded={open}
         className="w-full flex items-center gap-3 px-3 py-3 min-h-[56px] text-left active:bg-neutral-50"
       >

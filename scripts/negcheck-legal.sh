@@ -8,8 +8,11 @@ cd "$(dirname "$0")/.."
 META=src/components/editors/legal/legalMeta.js
 EDITOR=src/components/editors/LegalEditor.jsx
 PDF=packages/templates/pdf/ContractPDF.jsx
-cp "$META" /tmp/meta.bak; cp "$EDITOR" /tmp/editor.bak; cp "$PDF" /tmp/pdf.bak
-restore() { cp /tmp/meta.bak "$META"; cp /tmp/editor.bak "$EDITOR"; cp /tmp/pdf.bak "$PDF"; }
+SECTIONS=src/components/doc/docSections.js
+# Restore from a copy of the working tree, never from git. `git checkout -- <file>` reverts to
+# HEAD, which silently destroys uncommitted work in the file — it did exactly that once.
+cp "$META" /tmp/meta.bak; cp "$EDITOR" /tmp/editor.bak; cp "$PDF" /tmp/pdf.bak; cp "$SECTIONS" /tmp/docsections.bak
+restore() { cp /tmp/meta.bak "$META"; cp /tmp/editor.bak "$EDITOR"; cp /tmp/pdf.bak "$PDF"; cp /tmp/docsections.bak "$SECTIONS"; }
 trap restore EXIT
 
 fails=0
@@ -52,7 +55,7 @@ if node scripts/test-legal-binding.mjs >/tmp/out.txt 2>&1; then
 else
   echo "NEGCHECK ok    orphan sub-tab block — rejected: $(grep -m1 '^FAIL' /tmp/out.txt | cut -c1-110)"
 fi
-git checkout -- src/components/doc/docSections.js 2>/dev/null || cp /tmp/docsections.bak src/components/doc/docSections.js
+cp /tmp/docsections.bak "$SECTIONS"
 
 restore
 echo ""

@@ -3,13 +3,16 @@ import { Link } from 'react-router-dom';
 
 // A human-in-the-loop review card for a document the agent created or updated. Shows a
 // summary and routes the user to the AI-first document screen to review / take next steps.
-export function ReviewCard({ doc }) {
+//
+// `onOpen` exists for the Copilot conversation: there the card sits inside a live exchange, and
+// a whole-card <Link> means a stray tap on a summary yanks you out of a conversation the agent
+// is still running. With `onOpen` it renders as a button instead, so navigation stays explicit.
+export function ReviewCard({ doc, onOpen }) {
   const total = ((Number(doc.total_cents) || 0) / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
-  return (
-    <Link
-      to={`/documents/${doc.id}`}
-      className="flex items-center gap-3 rounded-xl border border-sunvic-200 bg-sunvic-50 p-3 hover:bg-sunvic-100 transition-colors"
-    >
+  const cls = 'flex w-full items-center gap-3 rounded-xl border border-sunvic-200 bg-sunvic-50 p-3 text-left hover:bg-sunvic-100 transition-colors';
+
+  const body = (
+    <>
       <div className="flex-shrink-0 w-9 h-9 rounded-lg bg-sunvic-500 text-white grid place-items-center">
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
@@ -25,6 +28,20 @@ export function ReviewCard({ doc }) {
         </div>
       </div>
       <div className="flex-shrink-0 text-sunvic-600 text-sm font-semibold">Review →</div>
+    </>
+  );
+
+  if (onOpen) {
+    return (
+      <button type="button" onClick={onOpen} data-testid="review-card" className={cls}>
+        {body}
+      </button>
+    );
+  }
+
+  return (
+    <Link to={`/documents/${doc.id}`} data-testid="review-card" className={cls}>
+      {body}
     </Link>
   );
 }

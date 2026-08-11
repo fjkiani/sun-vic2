@@ -18,12 +18,20 @@
 //      No canonical NJ clause path was ever checked, and saveField does not filter locked
 //      paths, so every legally-mandated block was freely rewritable from that pane.
 //
-// So it is deleted rather than patched. The editing capability it was supposed to provide
-// now lives in the PDF column: a [PDF | Edit] toggle that swaps the rendered document for
-// the existing, correctly-bound, lock-aware Form + Legal editors in the same pane. True
-// click-on-the-rendered-PDF editing is not implemented, and cannot be with @react-pdf —
-// it rasterises to a canvas and hands back no glyph coordinates to map a click onto a
-// payload path. Anything claiming otherwise would be a fourth renderer and the same bug.
+// So it is deleted rather than patched.
+//
+// The claim written here previously — that click-on-the-rendered-PDF editing "cannot be done
+// with @react-pdf, it rasterises to a canvas and hands back no glyph coordinates" — was wrong,
+// and wrong in a way worth recording. The old preview used <PDFViewer>, which is an <iframe>
+// pointed at a blob URL and handed to the browser's native PDF plugin. There were no glyph
+// coordinates because the page was never in our DOM at all: no text layer, no scroll position,
+// no click target. @react-pdf is still the generator, but the drawing is now pdf.js, so we own
+// the canvas, the text layer and the scroller. Clicking a value maps it back to a payload path
+// and edits it in place, and the form and the document scroll together.
+//
+// Click-to-edit resolves the path from the live payload every time (see lib/pdfTextIndex.js),
+// so a drifted or misspelled path is not expressible, and an ambiguous click is a no-op with a
+// toast rather than a guess. That is the specific defect the mirror had, made unrepeatable.
 //
 // The other change is that the project is no longer a separate destination. A Project tab
 // hosts the same ProjectWorkspace that /projects/:id renders, so the copilot, pipeline,
@@ -33,7 +41,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api.js';
-import { PDFPreview } from '../components/PDFPreview.jsx';
+import { PdfDocView } from '../components/pdf/PdfDocView.jsx';
 import { AgentChatPanel } from '../components/AgentChatPanel.jsx';
 import { ContractFormEditor } from '../components/editors/ContractFormEditor.jsx';
 import { InvoiceEditor as InvoiceFormEditor } from '../components/editors/InvoiceFormEditor.jsx';
@@ -43,7 +51,9 @@ import { ColumnResizer } from '../components/editor/ColumnResizer.jsx';
 import { SegmentedTabs } from '../components/SegmentedTabs.jsx';
 import { DocAiTab } from '../components/doc/DocAiTab.jsx';
 import { DocSubTabs } from '../components/doc/DocSubTabs.jsx';
-import { formTabsFor, LEGAL_TABS } from '../components/doc/docSections.js';
+import { formTabsFor, LEGAL_TABS, sectionForPath } from '../components/doc/docSections.js';
+import { SendPanel } from '../components/document/SendPanel.jsx';
+import { preflight } from '../../packages/validation/guardrails.js';
 import { DocAskBar } from '../components/agent/DocAskBar.jsx';
 import { ProjectWorkspace } from '../components/project/ProjectWorkspace.jsx';
 import { useDebouncedSave } from '../hooks/useDebouncedSave.js';
@@ -117,10 +127,14 @@ export function DocumentEditorPage() {
   const [leftTab, setLeftTab] = useState('form');
   // Desktop right column: pdf | edit
   const [docView, setDocView] = useState('pdf');
+  const [focusPath, setFocusPath] = useState(null);   // the field the form and PDF are both looking at
+  const syncSuppressed = useRef(false);
+  const scrollTimer = useRef(null);
   // Second level: which group of payload blocks the Form / Legal tab is showing.
   const [formSub, setFormSub] = useState('homeowner');
   const [legalSub, setLegalSub] = useState('terms');
   const [emailTo, setEmailTo] = useState('');
+  const [sendOpen, setSendOpen] = useState(false);
   const [busyOp, setBusyOp] = useState(null);
 
   const paneRef = useRef(null);
@@ -240,17 +254,13 @@ export function DocumentEditorPage() {
       window.open(result.signed_url, '_blank');
     } catch (e) { alert(`PDF gen failed: ${e.message || e}`); } finally { setBusyOp(null); }
   }
-  async function runEmail(to) {
+  // Sending is no longer a button that guesses. Every path opens the checklist, which shows
+  // the recipient, the blocking fields, and a jump to each one. The old body of this function
+  // is the bug: with no recipient it did `setTab('form'); return;` — switched tab and died
+  // without calling the API. All 17 live documents hit that branch.
+  function runEmail() {
     if (!doc) return;
-    const recipient = (to ?? emailTo).trim() || doc.client_email;
-    if (!recipient) { setTab('form'); setLeftTab('form'); return; }
-    await flushNow();
-    setBusyOp('email');
-    try {
-      await api.emailDocument(doc.id, { to: recipient });
-      alert(`Sent to ${recipient}`);
-      refetch();
-    } catch (e) { alert(`Email failed: ${e.message || e}`); } finally { setBusyOp(null); }
+    setSendOpen(true);
   }
   async function setStatus(status) {
     if (!doc) return;
@@ -280,6 +290,80 @@ export function DocumentEditorPage() {
     [doc?.locks]
   );
 
+  // Readiness, evaluated in the browser against the live payload with the same pure function
+  // the server uses. This is what the Send button reports, so the button cannot claim to work
+  // and then do nothing.
+  const sendCheck = useMemo(
+    () => (doc ? preflight(doc, 'email', {}) : { ok: false, blocking: [], issues: [] }),
+    [doc]
+  );
+
+  // ─── Scroll sync ───────────────────────────────────────────
+  // Iteration 7 deleted the old sync because it was proportional: it mapped "40% down the form"
+  // to "40% down the PDF", which is meaningless when the two have different lengths and section
+  // orders. This version is positional — it tracks the field row nearest the top of the form
+  // viewport and tells the document to go to THAT field.
+  const onFormScroll = useCallback(() => {
+    const scroller = leftScrollRef.current;
+    if (!scroller) return;
+    if (syncSuppressed.current) return;         // the PDF drove this scroll; do not echo it back
+    clearTimeout(scrollTimer.current);
+    scrollTimer.current = setTimeout(() => {
+      const rows = scroller.querySelectorAll('[data-field-path]');
+      if (!rows.length) return;
+      const top = scroller.getBoundingClientRect().top;
+      let best = null, bestDist = Infinity;
+      for (const r of rows) {
+        const d = Math.abs(r.getBoundingClientRect().top - top);
+        if (d < bestDist) { bestDist = d; best = r; }
+      }
+      const p = best?.getAttribute('data-field-path');
+      if (p) setFocusPath(p);
+    }, 120);
+  }, []);
+
+  // Touching any row in the form takes the document to that field. Done by delegation rather
+  // than by threading a callback into all 60 FieldRows: the row already carries its payload
+  // path in the DOM, so one handler on the column covers every field and cannot drift out of
+  // sync with the rows the way 60 hand-passed props would. It also makes the pairing work when
+  // the form column is too short to scroll, which on a laptop it usually is — an accordion
+  // shows one open section at a time, often only two or three rows.
+  const onFormPointer = useCallback((e) => {
+    const row = e.target?.closest?.('[data-field-path]');
+    const p = row?.getAttribute('data-field-path');
+    if (p) setFocusPath(p);
+  }, []);
+
+  // The reverse direction: clicking a value on the document brings the form to that row.
+  const scrollFormToPath = useCallback((path) => {
+    const scroller = leftScrollRef.current;
+    if (!scroller || !path) return;
+    const row = scroller.querySelector(`[data-field-path="${CSS.escape(path)}"]`);
+    if (!row) return;
+    syncSuppressed.current = true;
+    row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    row.classList.add('ring-2', 'ring-sunvic-500', 'rounded-lg');
+    setTimeout(() => row.classList.remove('ring-2', 'ring-sunvic-500', 'rounded-lg'), 1600);
+    setTimeout(() => { syncSuppressed.current = false; }, 700);
+  }, []);
+
+  // "Fix →" on a blocking field. The field may be in a tab that is not selected AND a sub-tab
+  // that is not selected — in which case it is not merely scrolled out of view, it is not in
+  // the DOM. So select tab and sub-tab first, let React commit, and only then scroll.
+  const jumpToField = useCallback((field) => {
+    const loc = sectionForPath(doc?.template, field);
+    if (!loc) return;                                   // fails closed rather than landing wrong
+    if (loc.tab === 'form') setFormSub(loc.section); else setLegalSub(loc.section);
+    setTab(loc.tab);
+    setLeftTab(loc.tab);
+    setSendOpen(false);
+    // Two frames: one for the tab switch to commit, one for the accordion section to lay out.
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      setFocusPath(field);
+      scrollFormToPath(field);
+    }));
+  }, [doc?.template, scrollFormToPath]);
+
   if (isLoading) return <div className="text-neutral-500">Loading…</div>;
   if (error) return <div className="text-rose-600">Error: {error.message}</div>;
   if (!doc) return null;
@@ -295,7 +379,20 @@ export function DocumentEditorPage() {
   const renderLegal = (section) => (
     <LegalEditor doc={doc} onSave={saveField} onToggleLock={toggleLock} section={section} />
   );
-  const pdfPanel = <PDFPreview template={doc.template} payload={doc.payload} docNumber={doc.doc_number} />;
+  // The document, rendered by us and clickable. Editing a value here goes through the same
+  // saveField the form uses, so it is lock-filtered and writes exactly one leaf.
+  const pdfPanel = (
+    <PdfDocView
+      template={doc.template}
+      payload={doc.payload}
+      docNumber={doc.doc_number}
+      locks={doc.locks}
+      focusPath={focusPath}
+      onEdit={(path, value) => saveField({ [path]: value })}
+      onFieldFocus={scrollFormToPath}
+      onVisiblePath={scrollFormToPath}
+    />
+  );
 
   // The mirror's job — "change the words next to the rendered page" — done with the editors
   // that already know the real payload paths and already honour the lock map.
@@ -440,6 +537,49 @@ export function DocumentEditorPage() {
           <div className="text-[10px] text-neutral-500 uppercase hidden md:block">Total</div>
           <div className="font-mono font-bold text-sm">{fmtUSD(total)}</div>
         </div>
+        {/* The Send button states its own readiness instead of pretending and failing silently. */}
+        <button
+          type="button"
+          onClick={() => setSendOpen(true)}
+          data-testid="send-open"
+          data-blockers={sendCheck.blocking.length}
+          className={`inline-flex items-center gap-1.5 min-h-[40px] px-3 rounded-xl text-xs font-semibold flex-shrink-0 ${
+            sendCheck.ok
+              ? 'bg-sunvic-500 hover:bg-sunvic-600 text-white'
+              : 'bg-amber-50 border border-amber-300 text-amber-800 hover:bg-amber-100'
+          }`}
+        >
+          <span>Send</span>
+          {!sendCheck.ok && (
+            <span className="grid place-items-center min-w-[18px] h-[18px] px-1 rounded-full bg-amber-500 text-white text-[10px] leading-none">
+              {sendCheck.blocking.length}
+            </span>
+          )}
+        </button>
+      </div>
+    </div>
+  );
+
+  // The send checklist. A sheet on mobile, a right-anchored drawer on desktop — either way it
+  // sits over the workspace so the document stays behind it, and "Fix →" closes it and takes
+  // you to the field.
+  const sendOverlay = sendOpen && (
+    <div className="fixed inset-0 z-50 flex md:items-stretch md:justify-end" data-testid="send-overlay">
+      <button
+        type="button"
+        aria-label="Close send panel"
+        onClick={() => setSendOpen(false)}
+        className="absolute inset-0 bg-neutral-900/40"
+      />
+      <div className="relative mt-auto md:mt-0 w-full md:w-[420px] max-h-[85vh] md:max-h-none md:h-full bg-white rounded-t-2xl md:rounded-none shadow-2xl overflow-hidden">
+        <SendPanel
+          doc={doc}
+          onJumpToField={jumpToField}
+          onSaveField={(path, value) => saveField({ [path]: value })}
+          onBeforeSend={flushNow}
+          onSent={() => { refetch(); }}
+          onClose={() => setSendOpen(false)}
+        />
       </div>
     </div>
   );
@@ -500,8 +640,8 @@ export function DocumentEditorPage() {
               busyOp={busyOp}
             />
           )}
-          {tab === 'form' && <div className="h-full overflow-y-auto p-3 pb-6">{renderForm(subValue)}</div>}
-          {tab === 'legal' && <div className="h-full overflow-y-auto p-3 pb-6">{renderLegal(subValue)}</div>}
+          {tab === 'form' && <div ref={leftScrollRef} onScroll={onFormScroll} onClickCapture={onFormPointer} className="h-full overflow-y-auto p-3 pb-6">{renderForm(subValue)}</div>}
+          {tab === 'legal' && <div ref={leftScrollRef} onScroll={onFormScroll} onClickCapture={onFormPointer} className="h-full overflow-y-auto p-3 pb-6">{renderLegal(subValue)}</div>}
           {tab === 'pdf' && <div className="h-full bg-neutral-800">{pdfPanel}</div>}
           {tab === 'project' && <div className="h-full overflow-hidden">{projectPanel}</div>}
         </div>
@@ -511,6 +651,7 @@ export function DocumentEditorPage() {
             <DocAskBar document={doc} scope={askScope} onDocumentUpdate={handleAgentUpdate} />
           )}
         </div>
+        {sendOverlay}
       </div>
     );
   }
@@ -561,7 +702,7 @@ export function DocumentEditorPage() {
               {leftTab === 'project'
                 ? <div className="flex-1 min-h-0 overflow-hidden">{projectPanel}</div>
                 : (
-                  <div ref={leftScrollRef} className="flex-1 overflow-y-auto p-3 space-y-3">
+                  <div ref={leftScrollRef} onScroll={onFormScroll} onClickCapture={onFormPointer} className="flex-1 overflow-y-auto p-3 space-y-3">
                     {leftTab === 'form' ? renderForm(leftSubValue) : renderLegal(leftSubValue)}
                   </div>
                 )}
@@ -592,6 +733,7 @@ export function DocumentEditorPage() {
       </div>
 
       <AgentChatPanel document={doc} onDocumentUpdate={handleAgentUpdate} floating />
+      {sendOverlay}
     </div>
   );
 }
