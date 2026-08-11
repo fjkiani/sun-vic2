@@ -52,7 +52,7 @@ function LockToggle({ locked, onToggle }) {
     <button
       type="button"
       onClick={onToggle}
-      className={`inline-flex items-center gap-1.5 text-xs rounded-lg px-2.5 py-1.5 min-h-[36px] ${
+      className={`inline-flex items-center gap-1.5 text-xs rounded-lg px-2.5 py-1.5 min-h-[44px] ${
         locked ? 'bg-sunvic-50 text-sunvic-700 border border-sunvic-200' : 'text-neutral-500 border border-neutral-200'
       }`}
     >

@@ -81,7 +81,7 @@ function MobileGroup({ kind, lanes, byLane }) {
       <div className="flex flex-wrap gap-1.5 mb-2">
         <button
           onClick={() => setFilter(null)}
-          className={`min-h-[32px] px-2.5 rounded-full text-[11px] font-semibold border ${
+          className={`min-h-[44px] px-3 rounded-full text-[11px] font-semibold border ${
             filter === null ? 'bg-sunvic-500 text-white border-sunvic-500' : 'bg-white text-neutral-600 border-neutral-300'
           }`}
         >
@@ -95,7 +95,7 @@ function MobileGroup({ kind, lanes, byLane }) {
               key={l}
               onClick={() => setFilter(active ? null : l)}
               disabled={n === 0}
-              className={`min-h-[32px] px-2.5 rounded-full text-[11px] font-semibold border capitalize disabled:opacity-40 ${
+              className={`min-h-[44px] px-3 rounded-full text-[11px] font-semibold border capitalize disabled:opacity-40 ${
                 active ? 'bg-sunvic-500 text-white border-sunvic-500' : CHIP_TONES[laneTone(kind, l)]
               }`}
             >

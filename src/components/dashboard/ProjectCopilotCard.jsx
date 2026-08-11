@@ -69,7 +69,7 @@ export function ProjectCopilotCard({ project }) {
             key={s}
             onClick={() => run(s)}
             disabled={busy}
-            className="text-xs rounded-full border border-sunvic-300 text-sunvic-700 bg-white px-2.5 py-1 hover:bg-sunvic-100 disabled:opacity-50"
+            className="text-xs rounded-full border border-sunvic-300 text-sunvic-700 bg-white px-3 min-h-[44px] hover:bg-sunvic-100 disabled:opacity-50"
           >
             {s}
           </button>

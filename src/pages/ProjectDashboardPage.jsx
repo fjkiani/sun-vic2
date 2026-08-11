@@ -81,7 +81,7 @@ export function ProjectDashboardPage() {
           before you pick a tab — it is the one number a contractor opens this page for. */}
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div className="min-w-0 flex-1">
-          <Link to="/projects" className="text-xs text-neutral-500 hover:text-neutral-800">← Projects</Link>
+          <Link to="/projects" className="inline-flex items-center min-h-[44px] text-xs text-neutral-500 hover:text-neutral-800">← Projects</Link>
           <h1 className="text-lg md:text-2xl font-bold text-neutral-900 truncate leading-tight">{localProject.name}</h1>
           <div className="text-xs text-neutral-500 truncate">
             {localProject.homeowner_name || 'No homeowner yet'}
