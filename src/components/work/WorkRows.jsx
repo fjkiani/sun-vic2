@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { SwipeableRow } from '../ui/SwipeableRow.jsx';
 import { formatUSD } from '../ui/MoneyInput.jsx';
 import { isDocGuarded, isProjectGuarded } from './useSwipeDelete.js';
+import { docHref, projectHref } from '../../lib/slugs.js';
 
 function fmtDate(iso) {
   if (!iso) return '—';
@@ -69,7 +70,7 @@ export function DocumentRow({ doc, onSwipe }) {
       actionLabel={guarded ? 'Review' : 'Delete'}
     >
       <DesktopDeleteButton onClick={() => onSwipe(doc, guarded)} label={`Delete ${doc.doc_number}`} />
-      <Link to={`/documents/${doc.id}`} className="block p-3 md:pr-12 active:bg-neutral-50">
+      <Link to={docHref(doc)} className="block p-3 md:pr-12 active:bg-neutral-50">
         <div className="flex items-center justify-between gap-2 mb-0.5">
           <div className="font-mono text-sunvic-600 font-semibold text-sm">{doc.doc_number}</div>
           <StatusBadge status={doc.status} />
@@ -99,7 +100,7 @@ export function ProjectRow({ project, onSwipe }) {
       actionLabel={guarded ? 'Review' : 'Delete'}
     >
       <DesktopDeleteButton onClick={() => onSwipe(project, guarded)} label={`Delete ${project.name}`} />
-      <Link to={`/projects/${project.id}`} className="block p-3 md:pr-12 active:bg-neutral-50">
+      <Link to={projectHref(project)} className="block p-3 md:pr-12 active:bg-neutral-50">
         <div className="flex items-center justify-between gap-2">
           <div className="font-semibold text-neutral-900 truncate">{project.name}</div>
           <span className="text-[10px] uppercase font-semibold text-neutral-500">{project.status}</span>

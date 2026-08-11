@@ -5,6 +5,7 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api.js';
+import { projectHref } from '../lib/slugs.js';
 
 function fmtUSD(cents) {
   return ((Number(cents) || 0) / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
@@ -82,7 +83,7 @@ export function ProjectsListPage() {
           {projects.map((p) => (
             <Link
               key={p.id}
-              to={`/projects/${p.id}`}
+              to={projectHref(p)}
               className="bg-white border border-neutral-200 hover:border-sunvic-400 hover:shadow-sm transition rounded-xl p-4"
             >
               <div className="flex items-start justify-between mb-2">

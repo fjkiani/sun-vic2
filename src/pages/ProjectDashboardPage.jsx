@@ -13,6 +13,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api.js';
+import { isUuid, projectIdFromRef } from '../lib/slugs.js';
 import { ProjectWorkspace } from '../components/project/ProjectWorkspace.jsx';
 
 function fmtUSD(cents) {
@@ -22,12 +23,28 @@ function fmtUSD(cents) {
 }
 
 export function ProjectDashboardPage() {
-  const { id } = useParams();
-  const { data, isLoading, error, refetch } = useQuery({
+  // The address is a readable slug — "88-raritan-avenue-highland-park-nj-dce232a6" — so it
+  // has to be turned back into an id before anything is fetched. Projects have no number of
+  // their own like documents do, so resolution goes through the list. Raw UUID addresses
+  // short-circuit and cost nothing extra, which keeps older links fast as well as working.
+  const { id: ref } = useParams();
+  const needsLookup = !isUuid(ref);
+  const { data: projList, isLoading: listLoading } = useQuery({
+    queryKey: ['projects', 'slug-resolve'],
+    queryFn: () => api.listProjects({}),
+    enabled: needsLookup,
+    staleTime: 60_000,
+  });
+  const id = needsLookup ? projectIdFromRef(ref, projList?.projects) : ref;
+  const unresolved = needsLookup && !listLoading && !id;
+
+  const { data, isLoading: sumLoading, error, refetch } = useQuery({
     queryKey: ['project-summary', id],
     queryFn: () => api.getProjectSummary(id),
+    enabled: !!id,
     refetchOnWindowFocus: true,
   });
+  const isLoading = (needsLookup && listLoading) || (!!id && sumLoading);
 
   // Local project state — merged with fetched data, allows optimistic inline edits.
   const [localProject, setLocalProject] = useState(null);
@@ -54,6 +71,20 @@ export function ProjectDashboardPage() {
   }, [id, localProject, refetch]);
 
   if (isLoading) return <div className="text-neutral-500">Loading project…</div>;
+  if (unresolved) {
+    return (
+      <div className="rounded-lg border border-neutral-200 bg-white p-4 text-sm" data-testid="project-unresolved">
+        <div className="font-medium text-neutral-900">No project at this address</div>
+        <div className="mt-1 text-neutral-600">
+          <code className="bg-neutral-100 px-1 py-0.5 rounded text-xs">{ref}</code> doesn’t match a project you can open.
+          It may have been deleted, or the link may be incomplete.
+        </div>
+        <div className="mt-3">
+          <Link to="/work?type=projects" className="text-sunvic-700 underline">← All projects</Link>
+        </div>
+      </div>
+    );
+  }
   if (error) {
     return (
       <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-sm text-red-800">

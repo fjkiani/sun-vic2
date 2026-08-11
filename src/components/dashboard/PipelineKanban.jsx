@@ -7,6 +7,7 @@
 import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { formatUSD } from '../ui/MoneyInput.jsx';
+import { docHref } from '../../lib/slugs.js';
 
 const CONTRACT_LANES = ['draft', 'sent', 'signed', 'void'];
 const INVOICE_LANES  = ['draft', 'sent', 'paid', 'overdue'];
@@ -36,7 +37,7 @@ function laneTone(kind, name) {
 function DocCard({ doc, showStage = false }) {
   return (
     <Link
-      to={`/documents/${doc.id}`}
+      to={docHref(doc)}
       className="block bg-white border border-neutral-200 rounded-lg p-2.5 hover:border-sunvic-400 hover:shadow-sm transition"
     >
       <div className="flex items-center justify-between gap-2">

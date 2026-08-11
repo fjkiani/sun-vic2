@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAgent } from '../../lib/useAgent.js';
 import { useModelChoice } from '../ModelPickerDropdown.jsx';
+import { docHref } from '../../lib/slugs.js';
 
 // Overview-first copilot for a project: a one-line summary of what the agent can do here,
 // plus an embedded prompt scoped to this project. The agent does the work (creates invoices,
@@ -23,7 +24,7 @@ export function ProjectCopilotCard({ project }) {
     const result = await send(scoped, { provider: choice.provider, model: choice.model });
     qc.invalidateQueries({ queryKey: ['project-summary', project.id] });
     qc.invalidateQueries({ queryKey: ['documents'] });
-    if (result?.new_documents?.length === 1) nav(`/documents/${result.new_documents[0].id}`);
+    if (result?.new_documents?.length === 1) nav(docHref(result.new_documents[0]));
   }
 
   const last = turns[turns.length - 1];

@@ -21,13 +21,22 @@ function normalizeType(t) {
 export function WorkPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const type = normalizeType(searchParams.get('type') || 'all');
-  const [status, setStatus] = useState('');
+  // Status lives in the URL alongside type, so a filtered view is linkable and survives a
+  // reload or a back button. It used to be local state, which meant "show me the drafts" was
+  // a thing you could see but never send to anyone or return to.
+  const status = searchParams.get('status') || '';
   const [q, setQ] = useState('');
   const qc = useQueryClient();
 
-  const setType = (t) => {
-    setSearchParams((p) => { const n = new URLSearchParams(p); n.set('type', t); return n; }, { replace: true });
+  const setParam = (key, val) => {
+    setSearchParams((p) => {
+      const n = new URLSearchParams(p);
+      if (val) n.set(key, val); else n.delete(key);
+      return n;
+    }, { replace: true });
   };
+  const setType = (t) => setParam('type', t);
+  const setStatus = (s) => setParam('status', s);
 
   const showProjects = type === 'all' || type === 'projects';
   const showDocs = type === 'all' || type === 'contract' || type === 'invoice';

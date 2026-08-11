@@ -2,6 +2,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../lib/api.js';
+import { docHref } from '../../lib/slugs.js';
 
 // "What the agent has done / what needs review" — a genuine feed of the most recent
 // documents (the agent's tangible output), newest first. Each row routes to the AI-first
@@ -30,7 +31,7 @@ export function AgentActivityFeed({ limit = 6 }) {
         return (
           <Link
             key={d.id}
-            to={`/documents/${d.id}`}
+            to={docHref(d)}
             className="flex items-center gap-3 rounded-xl border border-neutral-200 bg-white p-3 hover:border-sunvic-400 transition-colors"
           >
             <div className={`flex-shrink-0 w-2 h-2 rounded-full ${needsReview ? 'bg-amber-500' : 'bg-emerald-500'}`} />

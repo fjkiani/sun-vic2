@@ -17,20 +17,29 @@ export const handler = async (event) => {
   const { user, error: authErr } = await verifyUser(bearer(event));
   if (!user) return json(401, { error: 'unauthorized', detail: authErr });
 
-  const id = event.queryStringParameters?.id;
-  if (!id) return json(400, { error: 'missing_id' });
+  const ref = event.queryStringParameters?.id;
+  if (!ref) return json(400, { error: 'missing_id' });
 
   const svc = serviceClient();
 
+  // A document can be addressed by its UUID or by its document number. The number is the
+  // thing that is actually printed on the PDF and that people read out loud, so it is what
+  // the app puts in the address bar; the UUID keeps working so older links do not rot.
+  //
+  // The branch is required, not cosmetic: `id` is a uuid column, so filtering it by
+  // "CTR-2026-0019" is a Postgres cast error (22P02), not an empty result.
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(ref);
+
   // ownership check + fetch
-  const { data: doc, error: fetchErr } = await svc
-    .from('documents')
-    .select('*')
-    .eq('id', id)
-    .eq('created_by', user.id)
-    .maybeSingle();
+  const q = svc.from('documents').select('*').eq('created_by', user.id);
+  const { data: doc, error: fetchErr } = await (
+    isUuid ? q.eq('id', ref) : q.ilike('doc_number', ref)
+  ).maybeSingle();
   if (fetchErr) return json(500, { error: 'db_error', detail: fetchErr.message });
   if (!doc) return json(404, { error: 'not_found' });
+
+  // Everything downstream keys off the real primary key, never the thing the caller typed.
+  const id = doc.id;
 
   // ─── GET ─────────────────────────────────────────────
   if (event.httpMethod === 'GET') {

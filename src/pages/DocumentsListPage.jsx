@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api.js';
+import { docHref } from '../lib/slugs.js';
 
 function fmtUSD(cents) {
   return ((Number(cents) || 0) / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
@@ -87,7 +88,7 @@ export function DocumentsListPage() {
         ) : docs.length === 0 ? (
           <div className="bg-white border border-neutral-200 rounded-xl p-6 text-center text-neutral-500">No documents yet. Create your first contract or invoice above.</div>
         ) : docs.map((d) => (
-          <Link key={d.id} to={`/documents/${d.id}`}
+          <Link key={d.id} to={docHref(d)}
             className="block bg-white border border-neutral-200 rounded-xl p-3 active:bg-neutral-50">
             <div className="flex items-start justify-between gap-2 mb-1">
               <div className="font-mono text-sunvic-600 font-semibold text-sm">{d.doc_number}</div>
@@ -126,7 +127,7 @@ export function DocumentsListPage() {
             ) : docs.map((d) => (
               <tr key={d.id} className="border-t border-neutral-100 hover:bg-neutral-50">
                 <td className="px-4 py-3">
-                  <Link to={`/documents/${d.id}`} className="text-sunvic-600 font-mono hover:underline">{d.doc_number}</Link>
+                  <Link to={docHref(d)} className="text-sunvic-600 font-mono hover:underline">{d.doc_number}</Link>
                 </td>
                 <td className="px-4 py-3 capitalize">{d.template}</td>
                 <td className="px-4 py-3">

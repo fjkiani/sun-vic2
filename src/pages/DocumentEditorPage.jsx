@@ -38,9 +38,10 @@
 // money and milestones for the job are reachable without leaving the contract.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api.js';
+import { docHref, isUuid, projectHref } from '../lib/slugs.js';
 import { PdfDocView } from '../components/pdf/PdfDocView.jsx';
 import { AgentChatPanel } from '../components/AgentChatPanel.jsx';
 import { ContractFormEditor } from '../components/editors/ContractFormEditor.jsx';
@@ -165,6 +166,17 @@ export function DocumentEditorPage() {
     docIdRef.current = doc?.id || null;
     updatedAtRef.current = doc?.updated_at || null;
   }, [doc?.id, doc?.updated_at]);
+
+  // Links that were sent out as raw UUIDs still open, but the address bar upgrades itself to
+  // the document number so anything copied from here afterwards is readable. Seed the cache
+  // under the new key first, otherwise the key change costs a second fetch and a blank flash.
+  const nav = useNavigate();
+  const qc = useQueryClient();
+  useEffect(() => {
+    if (!data?.document?.doc_number || !isUuid(id)) return;
+    qc.setQueryData(['document', data.document.doc_number], data);
+    nav(docHref(data.document), { replace: true });
+  }, [data, id, nav, qc]);
   useEffect(() => { saveLayout(layout); }, [layout]);
 
   // ─── Project context ───────────────────────────────────────
@@ -443,7 +455,7 @@ export function DocumentEditorPage() {
           </div>
         </div>
         <Link
-          to={`/projects/${projectId}`}
+          to={projectHref(projectQuery.data?.project || { id: projectId })}
           className="flex-shrink-0 inline-flex items-center min-h-[44px] px-3 rounded-lg border border-neutral-300 text-xs font-semibold text-neutral-700 hover:bg-neutral-50"
         >
           Full page

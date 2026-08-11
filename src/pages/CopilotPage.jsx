@@ -28,6 +28,7 @@ import { BusinessDashboard } from '../components/copilot/BusinessDashboard.jsx';
 import { SegmentedTabs } from '../components/SegmentedTabs.jsx';
 import { AgentTurnDetail } from '../components/agent/AgentTurnDetail.jsx';
 import { SlotChecklist } from '../components/copilot/SlotChecklist.jsx';
+import { docHref } from '../lib/slugs.js';
 
 const TABS = [
   { id: 'business', label: 'Business' },
@@ -155,11 +156,11 @@ export function CopilotPage() {
                   <div key={d.id} className="space-y-1">
                     {/* onOpen keeps the card from being one big navigation trap — the agent may
                         still be mid-conversation and tapping a summary should not end it. */}
-                    <ReviewCard doc={d} onOpen={() => nav(`/documents/${d.id}`)} />
+                    <ReviewCard doc={d} onOpen={() => nav(docHref(d))} />
                     <div className="flex gap-2">
                       <button
                         type="button"
-                        onClick={() => nav(`/documents/${d.id}`)}
+                        onClick={() => nav(docHref(d))}
                         data-testid="copilot-open-doc"
                         className="min-h-[36px] px-3 rounded-lg bg-sunvic-500 text-white text-xs font-semibold"
                       >Open and finish it</button>

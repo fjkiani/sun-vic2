@@ -8,6 +8,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api.js';
 import { useModelChoice } from '../components/ModelPickerDropdown.jsx';
 import { useFillHeight, bottomBarGap } from '../hooks/useFillHeight.js';
+import { docHref } from '../lib/slugs.js';
 
 const STAGE_TONE = {
   gathering: 'bg-amber-100 text-amber-800',
@@ -67,7 +68,7 @@ function ToolCallChip({ name, args, docs }) {
     return (
       <div className="text-[11px] text-neutral-500 pl-2 border-l-2 border-sunvic-300">
         <span className="font-semibold text-sunvic-700">Generated</span> a {args.template || 'document'}
-        {doc?.doc_number && <> — <Link to={`/documents/${doc.id}`} className="text-sunvic-600 hover:underline font-mono">{doc.doc_number}</Link></>}
+        {doc?.doc_number && <> — <Link to={docHref(doc)} className="text-sunvic-600 hover:underline font-mono">{doc.doc_number}</Link></>}
       </div>
     );
   }
@@ -106,7 +107,7 @@ function ToolCallChip({ name, args, docs }) {
 
 function DocCard({ doc }) {
   return (
-    <Link to={`/documents/${doc.id}`}
+    <Link to={docHref(doc)}
       className="block bg-white border border-sunvic-200 hover:border-sunvic-400 rounded-lg p-3 transition">
       <div className="flex items-center justify-between gap-2 mb-1">
         <div className="font-mono text-sm font-semibold text-sunvic-700">{doc.doc_number}</div>

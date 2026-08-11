@@ -1,5 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import { docHref } from '../../lib/slugs.js';
 
 // A human-in-the-loop review card for a document the agent created or updated. Shows a
 // summary and routes the user to the AI-first document screen to review / take next steps.
@@ -40,7 +41,7 @@ export function ReviewCard({ doc, onOpen }) {
   }
 
   return (
-    <Link to={`/documents/${doc.id}`} data-testid="review-card" className={cls}>
+    <Link to={docHref(doc)} data-testid="review-card" className={cls}>
       {body}
     </Link>
   );

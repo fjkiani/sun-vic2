@@ -4,6 +4,7 @@
 
 import React from 'react';
 import { Link } from 'react-router-dom';
+import { docHref } from '../../lib/slugs.js';
 
 function fmtUSD(cents) {
   return ((Number(cents) || 0) / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
@@ -53,7 +54,7 @@ export function MilestoneTimeline({ milestones = [] }) {
                   {m.invoice ? (
                     <div className="mt-1">
                       <Link
-                        to={`/documents/${m.invoice.id}`}
+                        to={docHref(m.invoice)}
                         className="inline-block text-[10px] font-mono bg-neutral-100 hover:bg-sunvic-100 border border-neutral-300 rounded px-2 py-0.5"
                       >
                         {m.invoice.doc_number} · {m.invoice.status} · {fmtUSD(m.invoice.total_cents)}

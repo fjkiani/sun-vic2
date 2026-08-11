@@ -9,6 +9,7 @@
 import React, { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../lib/api.js';
+import { docHref } from '../lib/slugs.js';
 
 export function NewDocumentPage() {
   const nav = useNavigate();
@@ -23,7 +24,7 @@ export function NewDocumentPage() {
     setBusy(true); setError('');
     try {
       const { document } = await api.createDocument({ template });
-      nav(`/documents/${document.id}`);
+      nav(docHref(document));
     } catch (e) { setError(e.message || String(e)); } finally { setBusy(false); }
   }
 

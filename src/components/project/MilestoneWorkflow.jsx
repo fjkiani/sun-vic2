@@ -14,6 +14,7 @@
 import React, { useState, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../../lib/api.js';
+import { docHref } from '../../lib/slugs.js';
 
 function fmtUSD(cents) {
   return ((Number(cents) || 0) / 100).toLocaleString('en-US', {
@@ -249,7 +250,7 @@ export function MilestoneWorkflow({ projectId, project, milestones = [], contrac
                 </div>
 
                 {m.invoice ? (
-                  <Link to={`/documents/${m.invoice.id}`}
+                  <Link to={docHref(m.invoice)}
                     className="inline-flex items-center gap-1.5 mt-2 min-h-[44px] px-2.5 rounded-lg border border-neutral-300 bg-neutral-50 text-xs font-mono">
                     {m.invoice.doc_number} · {m.invoice.status}
                   </Link>
