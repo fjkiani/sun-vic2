@@ -165,11 +165,17 @@ async function main() {
   // These are role="tab", which overrides the implicit button role — getByRole('button')
   // does not match them. An earlier version of this file made exactly that mistake and
   // reported 22 false failures against a working UI.
-  const tabNames = ['AI', 'Form', 'Legal', 'Preview', 'PDF'];
+  // 'Preview' was the Live mirror and is deliberately gone — it resolved 9 of its 20
+  // editable payload paths and bypassed the lock map entirely. Its slot is now 'Project'.
+  const tabNames = ['AI', 'Form', 'Legal', 'PDF', 'Project'];
   for (const t of tabNames) {
     const el = page.getByRole('tab', { name: new RegExp(`^${t}$`, 'i') }).first();
     ok(await el.count() > 0, `primary tab "${t}" is present`);
   }
+  ok(
+    await page.getByRole('tab', { name: /^preview$/i }).count() === 0,
+    'the Live mirror tab is gone'
+  );
 
   const gotoTab = async (name) => {
     const b = page.getByRole('tab', { name: new RegExp(`^${name}$`, 'i') }).first();
