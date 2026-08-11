@@ -365,7 +365,7 @@ export function DocumentEditorPage() {
           <div className="text-xs font-semibold text-amber-900">This project is in the trash</div>
           <p className="mt-0.5 text-[11px] text-amber-800 leading-snug">
             The document is live, but its project was deleted on{' '}
-            {new Date(projectQuery.data.project.deleted_at).toLocaleDateString()}. It will not
+            {new Date(projectQuery.data.project.deleted_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}. It will not
             appear in your projects list until you restore it.
           </p>
           <button

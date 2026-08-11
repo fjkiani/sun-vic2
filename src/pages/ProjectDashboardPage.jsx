@@ -129,7 +129,7 @@ export function ProjectDashboardPage() {
         <div className="rounded-lg border border-amber-300 bg-amber-50 p-3">
           <div className="text-xs font-semibold text-amber-900">This project is in the trash</div>
           <p className="mt-0.5 text-xs text-amber-800 leading-snug">
-            Deleted on {new Date(localProject.deleted_at).toLocaleDateString()}. Its documents are
+            Deleted on {new Date(localProject.deleted_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}. Its documents are
             still live, but the project is hidden from your projects list until you restore it.
           </p>
           <button

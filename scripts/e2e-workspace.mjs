@@ -392,6 +392,46 @@ async function main() {
     ok(await dp.locator('canvas, iframe, .react-pdf__Page').count() > 0, 'toggling back restores the rendered PDF');
   }
 
+  // ─── 7. A trashed project must not masquerade as a live one ─
+  //
+  // FINDING 32: GET /api/projects/:id and /summary return 200 for a soft-deleted project
+  // because neither filters deleted_at, so the rail rendered a deleted project — name,
+  // money, pipeline — as current. On production that hit 10 of 17 live documents.
+  //
+  // Proven by doing it, not by reading the code: trash the fixture's project out from
+  // under a live document, reload, and require the UI to say so and to offer the repair.
+  line('trashed project — the rail tells the truth');
+  if (doc.project_id) {
+    const del = await api('DELETE', `/api/projects/${doc.project_id}`); // soft
+    ok(del.status < 400, 'fixture project soft-deleted for the test', `${del.status}`);
+
+    const stillReturns = await api('GET', `/api/projects/${doc.project_id}`);
+    ok(stillReturns.status === 200 && !!stillReturns.json?.project?.deleted_at,
+      'the API still serves the trashed project with deleted_at set (the condition being defended against)',
+      `${stillReturns.status}`);
+
+    await page.goto(`${BASE}/documents/${doc.id}`, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(1200);
+    await tab(page, 'Project').click();
+    await page.waitForTimeout(2600);
+
+    const trashText = await page.locator('body').innerText();
+    ok(/in the trash/i.test(trashText), 'the rail says the project is in the trash');
+    const restoreBtn = page.getByRole('button', { name: /restore this project/i }).first();
+    ok(await restoreBtn.count() > 0, 'the rail offers a Restore action');
+    await screenHealth(page, 'doc-rail-trashed-project');
+
+    if (await restoreBtn.count() > 0) {
+      await restoreBtn.click();
+      await page.waitForTimeout(2200);
+      const afterText = await page.locator('body').innerText();
+      ok(!/in the trash/i.test(afterText), 'the banner clears once the project is restored');
+      const listed = await api('GET', '/api/projects');
+      ok((listed.json?.projects || []).some((p) => p.id === doc.project_id),
+        'restoring from the rail puts the project back in the projects list');
+    }
+  }
+
   line('console health');
   const realErrors = consoleErrors.filter((e) => !/favicon|404 \(Not Found\).*\.png|ResizeObserver|Failed to load resource/i.test(e));
   ok(realErrors.length === 0, 'no uncaught console errors across the sweep', realErrors.slice(0, 4).join(' | '));
