@@ -52,6 +52,15 @@ import {
 // counter only advances on turns that learn nothing.
 const MAX_ITERATIONS = 4;
 
+// Renaming the thread is bookkeeping, not progress. It was still burning one of
+// the four iterations, so a turn that happened to retitle the thread had only
+// three left to actually answer the user — which is how a perfectly ordinary
+// compound message ("Jane Smith, full gut at 36 Bushnell Rd, $65,000, Sept 1")
+// ended in "hit the tool-call limit". Rounds made up entirely of housekeeping
+// are refunded; MAX_ROUNDS is the hard stop so a refunded round cannot loop.
+const HOUSEKEEPING_TOOLS = new Set(['set_thread_title']);
+const MAX_ROUNDS = 8;
+
 // ─── Template classifier (single-shot) ────────────────────
 
 async function classifyTemplate({ userMessage, threadTitle, provider }) {
@@ -689,10 +698,12 @@ export async function runThreadTurn({
   let clarifyIncrement = 0;
   let pendingSlotAfter = null;
   let iterations = 0;
+  let rounds = 0;
   let providerFailure = null;
 
-  while (iterations < MAX_ITERATIONS) {
+  while (iterations < MAX_ITERATIONS && rounds < MAX_ROUNDS) {
     iterations++;
+    rounds++;
     let text, tool_calls;
     try {
       ({ text, tool_calls } = await provider.chat({
@@ -774,6 +785,10 @@ export async function runThreadTurn({
       }
     }
 
+    // Refund a round that only did bookkeeping. The model still gets its full
+    // MAX_ITERATIONS of real attempts; MAX_ROUNDS bounds the total.
+    if (tool_calls.every((c) => HOUSEKEEPING_TOOLS.has(c.name))) iterations--;
+
     if (mustBreakAfterExec) {
       if (userFacingMessage) {
         assistantReply = userFacingMessage;
@@ -798,8 +813,20 @@ export async function runThreadTurn({
     });
   }
 
-  if (!assistantReply && iterations >= MAX_ITERATIONS) {
-    assistantReply = 'I made changes but hit the tool-call limit. Let me know if you want to continue.';
+  if (!assistantReply && (iterations >= MAX_ITERATIONS || rounds >= MAX_ROUNDS)) {
+    // The old text here was "I made changes but hit the tool-call limit. Let me
+    // know if you want to continue." — internal jargon, and a dead end: it told
+    // the user nothing about what was missing and gave them nothing to answer.
+    // Fall back to the canonical question for whatever is still missing, and
+    // arm pending_slot so their reply is absorbed as an answer to it.
+    const stillNeeded = missingRequiredSlots(template, gathered);
+    const next = stillNeeded[0];
+    if (next) {
+      assistantReply = `I got tangled up working that out — let's just take it one piece at a time. ${next.question}`;
+      if (!pendingSlotAfter) pendingSlotAfter = next.key;
+    } else {
+      assistantReply = "I got tangled up working that out, but I have everything I need. Say \"create it\" and I'll put the document together.";
+    }
     toPersist.push({ role: 'assistant', content: assistantReply, meta: { synthetic: true, iteration_capped: true } });
   }
 

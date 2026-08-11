@@ -225,30 +225,63 @@ function extractDate(msg) {
 }
 
 // Scope categories from free text keywords. Returns array or null.
+// Every keyword list below was written in the singular, and \b turned that into
+// a hard non-match on the plural: "new windows and doors" matched nothing,
+// "replace the gutters" matched nothing, "refinish the hardwood floors" matched
+// nothing. Those are the most ordinary ways a homeowner describes a job, so the
+// extractor went silent exactly where it should have been most confident — and
+// a silent extractor means either an unnecessary question or a contract whose
+// scope of work is missing a trade.
+//
+// The plural rule is written once here rather than as forty hand-appended `s?`s
+// that would drift apart the way the two name patterns already had.
+const scopeNouns = (words) => new RegExp(`\\b(?:${words.join('|')})(?:e?s)?\\b`);
+
+const INTERIORS_RE = scopeNouns([
+  'kitchen', 'bath(?:room)?', 'bedroom', 'living\\s+room', 'floor(?:ing)?',
+  'cabinet', 'counter', 'paint(?:ing)?', 'drywall', 'til(?:e|ing)',
+  'interior', 'finish',
+]);
+const EXTERIORS_RE = scopeNouns([
+  'roof(?:ing)?', 'siding', 'window', 'door', 'deck', 'patio', 'driveway',
+  'landscap(?:e|ing)', 'gutter', 'facade', 'exterior', 'paint\\s+outside',
+]);
+const MEP_RE = scopeNouns([
+  'plumb(?:ing)?', 'electric(?:al)?', 'hvac', 'heating', 'cooling',
+  'air\\s+conditioning', 'water\\s+heater', 'panel', 'circuit', 'breaker',
+  'duct', 'vent(?:ilation)?', 'boiler', 'furnace',
+]);
+// "ac" stays out of the plural rule on purpose: \bacs?\b would also match "aces".
+const AC_RE = /\bac\b/;
+const DEMO_SPECIFIC_RE = scopeNouns([
+  'demo(?:lition|lish(?:ing)?)?', 'foundation', 'excavat(?:e|ion|ing)',
+  'basement\\s+dig', 'underpin(?:ning)?', 'slab', 'footing',
+]);
+
 function extractScopeCategories(msg) {
   if (!msg) return null;
   const lower = msg.toLowerCase();
   const cats = new Set();
-  // Interiors keywords
-  if (/\b(kitchen|bath(?:room)?|bedroom|living\s+room|floor(?:ing)?|cabinet|counter|paint|drywall|tile|interior|finish)\b/.test(lower)) {
-    cats.add('Interiors');
-  }
-  // Exteriors keywords
-  if (/\b(roof|siding|window|door|deck|patio|driveway|landscape|gutter|facade|exterior|paint\s+outside)\b/.test(lower)) {
-    cats.add('Exteriors');
-  }
-  // MEP keywords
-  if (/\b(plumb(?:ing)?|electric(?:al)?|hvac|heating|cooling|ac|air\s+conditioning|water\s+heater|panel|circuit|breaker|duct|vent|boiler|furnace)\b/.test(lower)) {
-    cats.add('MEP');
-  }
-  // Demolition/Foundation
-  if (/\b(demo(?:lition)?|gut|foundation|excavat(?:e|ion)|basement\s+dig|underpin|slab|footing)\b/.test(lower)) {
-    cats.add('Demolition & Foundation');
-  }
-  // "full gut" bumps demo (kitchen was already interiors)
-  if (/\b(full\s+gut|complete\s+gut|gut\s+reno)\b/.test(lower)) {
-    cats.add('Demolition & Foundation');
-  }
+  if (INTERIORS_RE.test(lower)) cats.add('Interiors');
+  if (EXTERIORS_RE.test(lower)) cats.add('Exteriors');
+  if (MEP_RE.test(lower) || AC_RE.test(lower)) cats.add('MEP');
+  // Demolition/Foundation — keep the specific words apart from the umbrella ones.
+  const specificDemo = DEMO_SPECIFIC_RE.test(lower);
+  // "gut" in every form a homeowner actually writes it. Inflections matter:
+  // "we gutted the kitchen" is the same job as "gut the kitchen", and the
+  // earlier bare /\bgut\b/ silently missed it. \b keeps "gutter" out (that is
+  // an Exteriors word and is matched above).
+  const gutUmbrella  = /\bgut(?:ted|ting|s)?\b/.test(lower);
+  if (specificDemo || gutUmbrella) cats.add('Demolition & Foundation');
+
+  // "Full gut renovation" with nothing else named is an umbrella, not a scope.
+  // Accepting it filled the slot with Demolition & Foundation alone, which is
+  // how a whole-house gut ended up described in a signed legal document as
+  // demolition and nothing else. A wrong scope of work is worse than one more
+  // question, and this module's rule is that false negatives are cheap while
+  // false positives are damaging — so decline to guess and let the agent ask.
+  if (gutUmbrella && !specificDemo && cats.size === 1) return null;
+
   return cats.size > 0 ? [...cats] : null;
 }
 
