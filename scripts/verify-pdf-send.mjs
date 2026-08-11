@@ -253,7 +253,10 @@ async function main() {
     const msend = mp.locator('[data-testid="send-open"]');
     await msend.waitFor({ timeout: 20000 });
     const sbox = await msend.boundingBox();
-    ok(sbox && sbox.height >= 40, `Send is a real touch target (${Math.round(sbox?.height || 0)}px tall)`);
+    // 44, not 40. e2e-workspace has enforced TAP_MIN=44 all along; this file quietly
+    // accepted 40 and so it passed 32/32 while the Send button was out of spec. Two
+    // harnesses disagreeing on one threshold is a coverage hole, not a pass.
+    ok(sbox && sbox.height >= 44, `Send is a real touch target (${Math.round(sbox?.height || 0)}px tall)`);
     ok(sbox && sbox.x + sbox.width <= 391, `and is not pushed off the right edge (ends at ${Math.round((sbox?.x || 0) + (sbox?.width || 0))}px)`);
 
     await msend.click();

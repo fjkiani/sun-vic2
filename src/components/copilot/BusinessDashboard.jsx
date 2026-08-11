@@ -332,8 +332,11 @@ export function BusinessDashboard() {
             <>
               <strong>{stats.blocked.length}</strong> of your <strong>{stats.rated.length}</strong> documents
               {' '}can’t be sent yet.{' '}
+              {/* Inline in a sentence, but still a real thumb target — WCAG exempts inline
+                  links from the 44px rule and a 20px-tall link on a phone is still a miss. */}
               <button type="button" onClick={() => setOpenMetric('blocked')}
-                className="text-sunvic-700 underline underline-offset-2" data-testid="headline-drill">
+                className="inline-flex items-center min-h-[44px] px-1 -mx-1 align-middle text-sunvic-700 underline underline-offset-2"
+                data-testid="headline-drill">
                 See what’s missing
               </button>
             </>

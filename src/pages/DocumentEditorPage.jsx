@@ -555,7 +555,7 @@ export function DocumentEditorPage() {
           onClick={() => setSendOpen(true)}
           data-testid="send-open"
           data-blockers={sendCheck.blocking.length}
-          className={`inline-flex items-center gap-1.5 min-h-[40px] px-3 rounded-xl text-xs font-semibold flex-shrink-0 ${
+          className={`inline-flex items-center gap-1.5 min-h-[44px] px-3 rounded-xl text-xs font-semibold flex-shrink-0 ${
             sendCheck.ok
               ? 'bg-sunvic-500 hover:bg-sunvic-600 text-white'
               : 'bg-amber-50 border border-amber-300 text-amber-800 hover:bg-amber-100'

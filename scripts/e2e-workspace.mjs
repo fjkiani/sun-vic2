@@ -147,8 +147,20 @@ async function openEditorFields(page, sections = 1, rows = 4) {
  * The suite once wandered onto /copilot without noticing and blamed the next locator.
  * Assert the route after any interaction that clicks unnamed controls.
  */
-function assertStillOn(page, docId, where) {
-  ok(page.url().includes(docId), `${where}: still on the document, not navigated away`, page.url());
+/**
+ * "Did that tap navigate me away from this document?"
+ *
+ * The uuid used to be the only address a document had, so `url.includes(id)` was the
+ * whole check. Documents are now addressed by their number and a uuid URL rewrites
+ * itself to /documents/<doc_number>, so the uuid legitimately disappears from the bar
+ * while the page never moved. Accept either address for THIS document — and only this
+ * one, so a genuine navigation to some other document still fails.
+ */
+function assertStillOn(page, doc, where) {
+  const addresses = typeof doc === 'string' ? [doc] : [doc.id, doc.doc_number].filter(Boolean);
+  const url = page.url();
+  const on = addresses.some((a) => url.includes(a));
+  ok(on, `${where}: still on the document, not navigated away`, `${url} (expected one of ${addresses.join(', ')})`);
 }
 
 /** One call, three measurements, applied to every new screen. */
@@ -240,7 +252,7 @@ async function main() {
   // this tab whether or not a single form field works. Assert the delta the taps caused.
   ok(fstat.clicked > 0, 'Form tab exposes tappable field rows', JSON.stringify(fstat));
   ok(fstat.inputs > fstat.inputsBefore, 'tapping a field row reveals a real editor', `${fstat.inputsBefore} -> ${fstat.inputs}`);
-  assertStillOn(page, doc.id, 'form editing');
+  assertStillOn(page, doc, 'form editing');
   await screenHealth(page, 'doc-editor-mobile-form');
 
   await tab(page, 'Legal').click();
@@ -385,7 +397,7 @@ async function main() {
     ok(dstat.accordions > 0, 'Edit view renders the document as collapsible sections', `${dstat.accordions}`);
     ok(dstat.clicked > 0, 'Edit view exposes tappable field rows', JSON.stringify(dstat));
     ok(dstat.inputs > dstat.inputsBefore, 'Edit view reveals a real editor when a row is clicked', `${dstat.inputsBefore} -> ${dstat.inputs}`);
-    assertStillOn(dp, doc.id, 'desktop edit view');
+    assertStillOn(dp, doc, 'desktop edit view');
     if (SHOTS) await dp.screenshot({ path: `${SHOTS}/desktop-edit.png` });
     await pdfToggle.click();
     await dp.waitForTimeout(1200);
