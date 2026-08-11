@@ -35,6 +35,7 @@ export function ProjectDashboardPage() {
 
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(null);
+  const [restoring, setRestoring] = useState(false);
 
   const savePatch = useCallback(async (patch) => {
     if (!localProject) return;
@@ -115,6 +116,34 @@ export function ProjectDashboardPage() {
         <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800">
           Dashboard aggregates are unavailable. If you just migrated, retry in a few seconds;
           otherwise the summary API is degraded.
+        </div>
+      )}
+
+      {/*
+        GET /api/projects/:id does not filter deleted_at even though GET /api/projects does,
+        so this page renders a trashed project as a normal one. Reachable in practice: a
+        live document links here from its Project tab, and 10 of 17 live documents on
+        production pointed at trashed projects.
+      */}
+      {localProject.deleted_at && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 p-3">
+          <div className="text-xs font-semibold text-amber-900">This project is in the trash</div>
+          <p className="mt-0.5 text-xs text-amber-800 leading-snug">
+            Deleted on {new Date(localProject.deleted_at).toLocaleDateString()}. Its documents are
+            still live, but the project is hidden from your projects list until you restore it.
+          </p>
+          <button
+            type="button"
+            disabled={restoring}
+            onClick={async () => {
+              setRestoring(true);
+              try { await api.restoreProject(id); await refetch(); } catch { /* surfaced below */ }
+              finally { setRestoring(false); }
+            }}
+            className="mt-2 inline-flex items-center justify-center min-h-[44px] px-3 rounded-lg bg-amber-600 hover:bg-amber-700 disabled:opacity-60 text-white text-xs font-semibold"
+          >
+            {restoring ? 'Restoring…' : 'Restore this project'}
+          </button>
         </div>
       )}
 

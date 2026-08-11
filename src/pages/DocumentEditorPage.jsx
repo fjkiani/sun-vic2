@@ -160,6 +160,10 @@ export function DocumentEditorPage() {
   const projectId = doc?.project_id || null;
   const projectWanted = (isMobile && tab === 'project') || (!isMobile && leftTab === 'project');
   const [projectTouched, setProjectTouched] = useState(false);
+  // useDebouncedSave exposes `error` read-only, so the restore action carries its own state
+  // rather than reaching for a setter that does not exist.
+  const [restoring, setRestoring] = useState(false);
+  const [restoreError, setRestoreError] = useState(null);
   useEffect(() => { if (projectWanted) setProjectTouched(true); }, [projectWanted]);
 
   const projectQuery = useQuery({
@@ -348,6 +352,41 @@ export function DocumentEditorPage() {
           Full page
         </Link>
       </div>
+
+      {/*
+        GET /api/projects/:id and /summary both return 200 for a soft-deleted project —
+        neither filters deleted_at, unlike GET /api/projects. Measured on production, 10 of
+        17 live documents pointed at trashed projects, so without this the rail presents a
+        deleted project as a normal one and its money as current. Say so, and offer the
+        one-tap repair rather than making the user hunt for a restore.
+      */}
+      {projectQuery.data?.project?.deleted_at && (
+        <div className="flex-shrink-0 mb-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2">
+          <div className="text-xs font-semibold text-amber-900">This project is in the trash</div>
+          <p className="mt-0.5 text-[11px] text-amber-800 leading-snug">
+            The document is live, but its project was deleted on{' '}
+            {new Date(projectQuery.data.project.deleted_at).toLocaleDateString()}. It will not
+            appear in your projects list until you restore it.
+          </p>
+          <button
+            type="button"
+            disabled={restoring}
+            onClick={async () => {
+              setRestoring(true);
+              setRestoreError(null);
+              try {
+                await api.restoreProject(projectId);
+                await projectQuery.refetch();
+              } catch (e) { setRestoreError(e.message); }
+              finally { setRestoring(false); }
+            }}
+            className="mt-2 inline-flex items-center justify-center min-h-[44px] px-3 rounded-lg bg-amber-600 hover:bg-amber-700 disabled:opacity-60 text-white text-xs font-semibold"
+          >
+            {restoring ? 'Restoring…' : 'Restore this project'}
+          </button>
+          {restoreError && <p className="mt-1 text-[11px] text-rose-700">{restoreError}</p>}
+        </div>
+      )}
       <div className="flex-1 min-h-0">
         <ProjectWorkspace
           summary={projectQuery.data}

@@ -92,9 +92,17 @@ if (noEvidence.length) {
 
 if (!APPLY) { console.log('\nDRY RUN — pass --apply to delete.'); process.exit(0); }
 
+// Projects are SOFT-deleted by default. The evidence rules above are good but they are
+// still heuristics applied to someone else's business records, and 13 of 18 is most of the
+// list. A soft delete cleans the list and stays reversible with restoreProject if a single
+// judgement here is wrong; --permanent opts into the irreversible version.
+const PERMANENT = process.argv.includes('--permanent');
+const suffix = PERMANENT ? '?permanent=1' : '';
+console.log(`\ndeleting projects (${PERMANENT ? 'PERMANENT — irreversible' : 'soft — recoverable via restore'})`);
+
 let ok = 0, fail = 0;
 for (const r of toPurge) {
-  try { await api(`/projects/${r.id}?permanent=1`, { method: 'DELETE' }); ok += 1; console.log(`  deleted ${r.id} ${r.name} (${r.why})`); }
+  try { await api(`/projects/${r.id}${suffix}`, { method: 'DELETE' }); ok += 1; console.log(`  deleted ${r.id} ${r.name} (${r.why})`); }
   catch (e) { fail += 1; console.log(`  FAILED  ${r.id} ${r.name}: ${e.message}`); }
 }
 
