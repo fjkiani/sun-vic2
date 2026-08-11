@@ -43,9 +43,13 @@ import {
   missingRequiredSlots,
   coerceSlotValue,
   foreignSlotHits,
+  clarifyBudget,
 } from './thread-slots.js';
 
-const MAX_CLARIFY_TURNS = 3;
+// NOTE: there is deliberately no MAX_CLARIFY_TURNS constant any more. A fixed
+// cap of 3 made a 5-required-slot contract impossible to finish (see
+// clarifyBudget in thread-slots.js). The budget is per-template, and the
+// counter only advances on turns that learn nothing.
 const MAX_ITERATIONS = 4;
 
 // ─── Template classifier (single-shot) ────────────────────
@@ -76,7 +80,7 @@ async function classifyTemplate({ userMessage, threadTitle, provider }) {
 
 // ─── System prompt (slot-aware) ───────────────────────────
 
-function threadSystemPrompt({ stage, template, gathered, missing, clarifyCount, memory, threadDocs, pendingSlot }) {
+function threadSystemPrompt({ stage, template, gathered, missing, clarifyCount, clarifyMax, memory, threadDocs, pendingSlot }) {
   const projects = memory.projects || [];
   const docs = memory.documents || [];
 
@@ -111,7 +115,7 @@ function threadSystemPrompt({ stage, template, gathered, missing, clarifyCount, 
       `Your current job is to GATHER the fields listed below before drafting the ${template || 'document'}.`,
       `Constraint: call ONLY the ask_slot tool right now, and pass one of the MISSING/REQUIRED slot keys shown below.`,
       `Do NOT compose your own question — the server will show the user the canonical question for that slot.`,
-      `You have asked ${clarifyCount} of ${MAX_CLARIFY_TURNS} allowed clarifying questions so far.`,
+      `You have used ${clarifyCount} of ${clarifyMax} unproductive clarifying questions so far (the counter resets whenever the user actually tells you something).`,
     ].join('\n'),
     ready_to_generate: [
       `All required slots are filled. Your job now is to call generate_document to create the ${template}.`,
@@ -119,7 +123,7 @@ function threadSystemPrompt({ stage, template, gathered, missing, clarifyCount, 
       `Call generate_document with no arguments (the server will use the gathered slots).`,
     ].join('\n'),
     refuse: [
-      `You have used all ${MAX_CLARIFY_TURNS} clarifying questions and the required slots below are still empty.`,
+      `You have used all ${clarifyMax} clarifying questions without learning anything new, and the required slots below are still empty.`,
       `Your only valid move is to call refuse_and_summarize with the list of missing slot keys.`,
       `Do NOT call ask_slot again. Do NOT call generate_document.`,
     ].join('\n'),
@@ -606,10 +610,22 @@ export async function runThreadTurn({
     threadPatchImmediate.gathered_slots = gathered;
   }
 
+  // Did this turn actually learn something? The clarify budget exists to stop a
+  // stalled interrogation, not to cap a legitimate interview — so a turn where
+  // the user answered must not spend budget. Without this reset, a cooperative
+  // user answering one question per turn still hits the cap and gets refused.
+  const learnedSomething =
+    Object.keys(extractedPatch).length > 0 || (absorbed?.value != null && !absorbed.error);
+
   // ─── Step 4: figure out stage for this turn ─────
   const missingReq = missingRequiredSlots(template, gathered);
   const hasDoc = threadDocs.length > 0;
-  const clarifyCount = thread.clarify_count || 0;
+  // A productive turn zeroes the stall counter; an unproductive one carries it.
+  const clarifyCount = learnedSomething ? 0 : (thread.clarify_count || 0);
+  if (learnedSomething && (thread.clarify_count || 0) !== 0) {
+    threadPatchImmediate.clarify_count = 0;
+  }
+  const clarifyMax = clarifyBudget(template);
 
   let effectiveStage;
   let toolsSubset;
@@ -623,9 +639,15 @@ export async function runThreadTurn({
     toolsSubset = threadToolDefs().filter((t) =>
       ['generate_document', 'lookup_document', 'set_thread_title'].includes(t.name)
     );
-  } else if (clarifyCount >= MAX_CLARIFY_TURNS) {
+  } else if (clarifyCount >= clarifyMax) {
     effectiveStage = 'refuse';
-    toolsSubset = threadToolDefs().filter((t) => t.name === 'refuse_and_summarize');
+    // ask_slot stays on the menu even here. Declaring a single tool is what
+    // turned "the model wants to ask another question" into a hard Cohere 422
+    // (HALLUCINATED_ALL_TOOL_CALLS); the prompt, not the schema, is what steers
+    // it toward refusing, and executeThreadTool still owns the final say.
+    toolsSubset = threadToolDefs().filter((t) =>
+      ['refuse_and_summarize', 'ask_slot'].includes(t.name)
+    );
   } else {
     effectiveStage = 'gathering';
     toolsSubset = threadToolDefs().filter((t) =>
@@ -646,6 +668,7 @@ export async function runThreadTurn({
     gathered,
     missing: missingAll,
     clarifyCount,
+    clarifyMax,
     memory,
     threadDocs,
     pendingSlot,
@@ -666,6 +689,7 @@ export async function runThreadTurn({
   let clarifyIncrement = 0;
   let pendingSlotAfter = null;
   let iterations = 0;
+  let providerFailure = null;
 
   while (iterations < MAX_ITERATIONS) {
     iterations++;
@@ -677,8 +701,20 @@ export async function runThreadTurn({
         tools: toolsSubset,
         temperature: 0.3,
         max_tokens: 1200,
+        // Ask the provider to constrain generation to the tools we actually
+        // declared. Adapters that cannot do this ignore the flag.
+        strict_tools: true,
       }));
-    } catch (e) { throw tag(`llm_iter_${iterations}`, e); }
+    } catch (e) {
+      // A provider outage must not eat the user's answer. Everything we learned
+      // before the call (absorbed slot, classified template, cleared pending
+      // slot, reset counter) is already in threadPatchImmediate and gets
+      // persisted below, and the user's message is already in toPersist — so
+      // the next turn resumes from the right place instead of rewinding.
+      providerFailure = tag(`llm_iter_${iterations}`, e);
+      console.error('[thread-agent] provider failed, degrading turn:', providerFailure?.message);
+      break;
+    }
 
     if (!tool_calls?.length) {
       assistantReply = (text || '').trim();
@@ -749,6 +785,19 @@ export async function runThreadTurn({
     }
   }
 
+  if (providerFailure && !assistantReply) {
+    const stillNeeded = missingRequiredSlots(template, gathered);
+    const next = stillNeeded[0];
+    assistantReply = next
+      ? `I saved what you just told me, but the model call failed on that turn. Nothing is lost — say anything to continue, and I still need ${next.label.toLowerCase()}.`
+      : 'I saved what you just told me, but the model call failed on that turn. Nothing is lost — say anything to continue.';
+    toPersist.push({
+      role: 'assistant',
+      content: assistantReply,
+      meta: { synthetic: true, degraded: true, provider_error: providerFailure?.message || 'provider_failed' },
+    });
+  }
+
   if (!assistantReply && iterations >= MAX_ITERATIONS) {
     assistantReply = 'I made changes but hit the tool-call limit. Let me know if you want to continue.';
     toPersist.push({ role: 'assistant', content: assistantReply, meta: { synthetic: true, iteration_capped: true } });
@@ -779,6 +828,7 @@ export async function runThreadTurn({
     iterations,
     new_documents: newDocuments,
     thread: nextThread,
+    degraded: providerFailure ? { code: 'provider_failed', detail: providerFailure?.message || null } : null,
     slot_state: {
       template,
       gathered_slots: gathered,

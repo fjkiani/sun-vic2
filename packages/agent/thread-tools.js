@@ -38,11 +38,15 @@ export function threadToolDefs() {
       parameters: {
         type: 'object',
         properties: {
-          // Template is inferred from thread.template but allowed as an explicit override.
+          // Required, not optional. Cohere's strict_tools mode — the documented
+          // cure for HALLUCINATED_ALL_TOOL_CALLS — rejects any tool whose
+          // parameters are all optional, so every tool here must declare at
+          // least one required field. The server still trusts thread.template
+          // over this value; the model is only echoing back what it is making.
           template: {
             type: 'string',
             enum: ['contract', 'invoice'],
-            description: 'Optional override. Defaults to thread.template.',
+            description: 'Which document you are creating. Echo the thread template; the server is authoritative.',
           },
           extra_context: {
             type: 'string',
@@ -50,7 +54,7 @@ export function threadToolDefs() {
               'Optional free-text supplement — e.g. specific scope notes the user typed that don\'t map cleanly to a slot. Appended to the oneshot prompt after the structured slot list.',
           },
         },
-        required: [],
+        required: ['template'],
       },
     },
     {

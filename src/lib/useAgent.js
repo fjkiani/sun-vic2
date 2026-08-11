@@ -11,6 +11,20 @@ import { api } from './api.js';
 // them is what left the Copilot page showing prose only, while the document screen showed the
 // agent's actual work — the same agent looking like two different products. Everything the
 // server reports is now kept and handed to the UI.
+// Provider failures used to be pasted into the transcript verbatim, so the
+// contractor read `Cohere 422: {"error_type":"HALLUCINATED_ALL_TOOL_CALLS",...}`
+// in the middle of their conversation. Translate the ones we know; never show
+// raw JSON.
+export function humanizeAgentError(detail) {
+  const d = String(detail || '');
+  if (/HALLUCINATED_ALL_TOOL_CALLS/i.test(d)) return 'The model tried to do something it was not allowed to do on that turn. Your answer was saved — say anything to continue.';
+  if (/\b429\b|rate.?limit|quota/i.test(d)) return 'The model provider is rate-limiting us right now. Wait a moment and send that again.';
+  if (/no_api_key_for_provider/i.test(d)) return 'No API key is configured for that model provider. Add one in Settings.';
+  if (/\b(408|timeout|ETIMEDOUT|aborted)\b/i.test(d)) return 'That turn took too long and timed out. Send it again.';
+  if (/\b5\d\d\b/.test(d)) return 'The model provider had a server error on that turn. Your answer was saved — send it again.';
+  return 'That turn did not go through. Your answer was saved — send it again.';
+}
+
 export function useAgent() {
   const [threadId, setThreadId] = useState(null);
   const [thread, setThread] = useState(null);   // full row: template, gathered_slots, pending_slot, stage
@@ -37,8 +51,9 @@ export function useAgent() {
       const tid = await ensureThread();
       const result = await api.postThreadTurn(tid, { message: msg, provider, model });
       const newDocs = result.new_documents || [];
-      // The thread row is the authoritative slot state — it was written server-side before the
-      // LLM ran, so it reflects anything the extractors pulled out of this very message.
+      // The thread row is the authoritative slot state. It is written with the turn — including
+      // when the model call itself fails — so anything the extractors pulled out of this very
+      // message survives a provider outage instead of being rewound.
       if (result.thread) setThread(result.thread);
       setTurns((t) => [...t, {
         role: 'assistant',
@@ -47,7 +62,11 @@ export function useAgent() {
         refused: result.refused || [],
         new_documents: newDocs,
         iterations: result.iterations,
+        // Server answered, but the model leg of the turn broke. Not a crash — the
+        // slots were kept — so it reads as a warning, not a failure.
+        degraded: result.degraded || null,
       }]);
+      if (result.degraded) setError(humanizeAgentError(result.degraded.detail));
       return {
         reply: result.reply,
         new_documents: newDocs,
@@ -58,10 +77,11 @@ export function useAgent() {
       };
     } catch (e) {
       const detail = e?.detail || e?.message || String(e);
-      setError(detail);
+      const human = humanizeAgentError(detail);
+      setError(human);
       // Marked `failed` so the UI can style it as a breakdown rather than as the agent
       // calmly saying something went wrong in its own voice.
-      setTurns((t) => [...t, { role: 'assistant', content: `Sorry — something went wrong: ${detail}`, failed: true }]);
+      setTurns((t) => [...t, { role: 'assistant', content: human, failed: true, raw_error: detail }]);
       return null;
     } finally {
       setBusy(false);

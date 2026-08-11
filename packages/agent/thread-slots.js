@@ -541,6 +541,26 @@ export function nextRequiredSlot(template, gathered) {
   return null;
 }
 
+// Every REQUIRED slot for a template, filled or not.
+export function requiredSlotDefs(template) {
+  return slotDefsFor(template).filter((d) => d.required);
+}
+
+// How many clarifying questions the agent may ask before it must give up.
+//
+// This USED to be a hard-coded 3 for every template, which is arithmetically
+// impossible for a contract: a contract has 5 required slots, so a cooperative
+// user answering one question per turn was cut off at slot 3 of 5 and could
+// never reach `ready_to_generate`. The budget must be a function of how many
+// questions the template actually needs, never a constant.
+//
+// Headroom of +2 covers one re-ask (unparseable date, ambiguous money) plus
+// one optional-slot detour without letting a genuinely stuck loop run forever.
+export const CLARIFY_HEADROOM = 2;
+export function clarifyBudget(template) {
+  return requiredSlotDefs(template).length + CLARIFY_HEADROOM;
+}
+
 // Return the list of missing required slots (all of them).
 export function missingRequiredSlots(template, gathered) {
   const defs = slotDefsFor(template);

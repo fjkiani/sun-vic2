@@ -113,8 +113,24 @@ export class CohereProvider extends LLMProvider {
     });
   }
 
-  async chat({ system, messages, tools, temperature = 0.3, max_tokens = 2000 }) {
-    const body = {
+  // Cohere returns HTTP 422 { error_type: 'HALLUCINATED_ALL_TOOL_CALLS' } when
+  // EVERY tool call the model generated fails validation against the declared
+  // tools. In practice that means the model wanted a tool we did not offer —
+  // which happens constantly with a stage machine that narrows `tools` turn by
+  // turn. Left unhandled it is a hard 500 and the user's message is lost.
+  static #isHallucinatedTools(err) {
+    return err?.status === 422 && /HALLUCINATED_ALL_TOOL_CALLS/i.test(err?.message || '');
+  }
+
+  // strict_tools is Cohere's documented cure, but it refuses any tool whose
+  // parameters are all optional. Check before asking for it, or the retry
+  // trades a 422 for a 400.
+  static #strictEligible(tools) {
+    return !!tools?.length && tools.every((t) => Array.isArray(t.parameters?.required) && t.parameters.required.length > 0);
+  }
+
+  async chat({ system, messages, tools, temperature = 0.3, max_tokens = 2000, strict_tools = false }) {
+    const base = {
       model: this.model,
       messages: [
         ...(system ? [{ role: 'system', content: system }] : []),
@@ -123,11 +139,36 @@ export class CohereProvider extends LLMProvider {
       temperature,
       max_tokens,
     };
-    if (tools?.length) {
-      body.tools = tools.map((t) => ({ type: 'function', function: t }));
-      body.tool_choice = 'auto';
+    const withTools = (extra = {}) => ({
+      ...base,
+      tools: tools.map((t) => ({ type: 'function', function: t })),
+      ...extra,
+    });
+
+    let data;
+    if (!tools?.length) {
+      data = await this.#post(base);
+    } else {
+      const strictOk = CohereProvider.#strictEligible(tools);
+      try {
+        data = await this.#post(withTools(strict_tools && strictOk ? { strict_tools: true } : {}));
+      } catch (e) {
+        if (!CohereProvider.#isHallucinatedTools(e)) throw e;
+        // Attempt 2: let Cohere constrain generation to the declared schema so
+        // an undeclared tool is not expressible in the first place.
+        if (strictOk && !strict_tools) {
+          try {
+            data = await this.#post(withTools({ strict_tools: true }));
+          } catch (e2) {
+            if (!CohereProvider.#isHallucinatedTools(e2)) throw e2;
+            data = null;
+          }
+        }
+        // Attempt 3: drop tools entirely. A prose answer is a worse turn than a
+        // tool call, but it is an enormously better turn than a 500.
+        if (!data) data = await this.#post(base);
+      }
     }
-    const data = await this.#post(body);
     const msg = data.message || {};
     const text = msg.content?.map((c) => c.text || '').join('') || '';
     const tool_calls = (msg.tool_calls || []).map((tc) => ({

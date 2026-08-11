@@ -87,6 +87,7 @@ export const handler = async (event) => {
         project_id: d.project_id,
       })),
       iterations: turn.iterations,
+      degraded: turn.degraded || null,
     });
   } catch (e) {
     console.error('[thread-turn.POST] failure:', e);
