@@ -86,6 +86,18 @@ export const handler = async (event) => {
         total_cents: d.total_cents,
         project_id: d.project_id,
       })),
+      // Reconciliation channel: every document tied to this thread, not just the
+      // ones created on this turn. If a turn's response is ever lost in transit
+      // the next turn still carries the document, so it cannot go missing.
+      thread_documents: (turn.thread_documents || []).map((d) => ({
+        id: d.id,
+        template: d.template,
+        doc_number: d.doc_number,
+        status: d.status,
+        title: d.title,
+        total_cents: d.total_cents,
+        project_id: d.project_id,
+      })),
       iterations: turn.iterations,
       degraded: turn.degraded || null,
     });

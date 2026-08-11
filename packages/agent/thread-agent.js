@@ -61,6 +61,19 @@ const MAX_ITERATIONS = 4;
 const HOUSEKEEPING_TOOLS = new Set(['set_thread_title']);
 const MAX_ROUNDS = 8;
 
+// vercel.json gives this function 60s. Running past that is not "slow" — it is
+// a 504 at the gateway, and the response body is the only thing that tells the
+// browser what the server just did. A real run lost a freshly created contract
+// exactly that way: the row was written, the 504 ate the reply, and the card
+// never appeared in the conversation. Stop early and answer instead. The
+// refunded-housekeeping rounds above raise the worst-case call count, so this
+// ceiling is what keeps that from becoming a timeout.
+// The provider adapter is handed whatever is left of this, so the whole turn —
+// every loop round, every fallback retry inside it — is bounded by one number.
+// MIN_TURN_SLICE_MS is the smallest slice worth starting a round with.
+const TURN_DEADLINE_MS = 40_000;
+const MIN_TURN_SLICE_MS = 6_000;
+
 // ─── Template classifier (single-shot) ────────────────────
 
 async function classifyTemplate({ userMessage, threadTitle, provider }) {
@@ -574,7 +587,9 @@ export async function runThreadTurn({
     const svc = serviceClient();
     const { data } = await svc
       .from('documents')
-      .select('id, doc_number, template, status, total_cents')
+      // Same columns the turn response projects for a freshly created document,
+      // so a card rebuilt from thread state is indistinguishable from a live one.
+      .select('id, doc_number, template, status, title, total_cents, project_id')
       .eq('thread_id', thread.id)
       .eq('created_by', user.id)
       .order('created_at', { ascending: true });
@@ -700,8 +715,12 @@ export async function runThreadTurn({
   let iterations = 0;
   let rounds = 0;
   let providerFailure = null;
+  let deadlineHit = false;
+  const turnStartedAt = Date.now();
 
   while (iterations < MAX_ITERATIONS && rounds < MAX_ROUNDS) {
+    const budgetLeft = TURN_DEADLINE_MS - (Date.now() - turnStartedAt);
+    if (budgetLeft < MIN_TURN_SLICE_MS) { deadlineHit = true; break; }
     iterations++;
     rounds++;
     let text, tool_calls;
@@ -715,6 +734,9 @@ export async function runThreadTurn({
         // Ask the provider to constrain generation to the tools we actually
         // declared. Adapters that cannot do this ignore the flag.
         strict_tools: true,
+        // Adapters that cannot honour a budget ignore this the same way they
+        // ignore strict_tools; the outer loop check still bounds the turn.
+        budget_ms: budgetLeft,
       }));
     } catch (e) {
       // A provider outage must not eat the user's answer. Everything we learned
@@ -813,7 +835,7 @@ export async function runThreadTurn({
     });
   }
 
-  if (!assistantReply && (iterations >= MAX_ITERATIONS || rounds >= MAX_ROUNDS)) {
+  if (!assistantReply && (deadlineHit || iterations >= MAX_ITERATIONS || rounds >= MAX_ROUNDS)) {
     // The old text here was "I made changes but hit the tool-call limit. Let me
     // know if you want to continue." — internal jargon, and a dead end: it told
     // the user nothing about what was missing and gave them nothing to answer.
@@ -821,13 +843,20 @@ export async function runThreadTurn({
     // arm pending_slot so their reply is absorbed as an answer to it.
     const stillNeeded = missingRequiredSlots(template, gathered);
     const next = stillNeeded[0];
+    const lead = deadlineHit
+      ? 'That one took longer than I can spend on a single turn, so I stopped rather than leave you hanging.'
+      : 'I got tangled up working that out — let\'s just take it one piece at a time.';
     if (next) {
-      assistantReply = `I got tangled up working that out — let's just take it one piece at a time. ${next.question}`;
+      assistantReply = `${lead} ${next.question}`;
       if (!pendingSlotAfter) pendingSlotAfter = next.key;
     } else {
-      assistantReply = "I got tangled up working that out, but I have everything I need. Say \"create it\" and I'll put the document together.";
+      assistantReply = `${lead} I do have everything I need — say "create it" and I'll put the document together.`;
     }
-    toPersist.push({ role: 'assistant', content: assistantReply, meta: { synthetic: true, iteration_capped: true } });
+    toPersist.push({
+      role: 'assistant',
+      content: assistantReply,
+      meta: { synthetic: true, iteration_capped: !deadlineHit, deadline_hit: deadlineHit },
+    });
   }
 
   // Persist.
@@ -854,6 +883,14 @@ export async function runThreadTurn({
     refused: refusedTools,
     iterations,
     new_documents: newDocuments,
+    // Everything this thread has ever produced, including documents created on a
+    // turn whose response never reached the browser. The client renders from
+    // this, so a dropped reply costs one refresh instead of hiding the document
+    // for the rest of the conversation.
+    thread_documents: [
+      ...threadDocs.filter((d) => !newDocuments.some((n) => n.id === d.id)),
+      ...newDocuments,
+    ],
     thread: nextThread,
     degraded: providerFailure ? { code: 'provider_failed', detail: providerFailure?.message || null } : null,
     slot_state: {

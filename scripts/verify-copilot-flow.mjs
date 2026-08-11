@@ -186,6 +186,12 @@ async function main() {
          `address split out of the same sentence (${byKey['homeowner.address']?.text})`);
       ok(/2026-09-01|Sep/.test(byKey['timeline.start_date']?.text || ''),
          `start date split out of the same sentence (${byKey['timeline.start_date']?.text})`);
+      // "full gut renovation" is an umbrella term, not a scope of work. Guessing
+      // it wrote scope_categories = ["Demolition & Foundation"] and nothing else
+      // onto a real contract — a whole-house job described as demolition with no
+      // rebuild. The slot must stay open so the agent asks.
+      ok(byKey['scope_categories']?.filled !== true,
+         `scope not guessed from an umbrella term (${byKey['scope_categories']?.text || 'still open'})`);
       note(`checklist ${cl2.filled}/${cl2.required}: ${cl2.rows.map((r) => `${r.slot}${r.filled ? '✓' : r.waiting ? '→' : '○'}`).join(' ')}`);
       // The money row must read as money, not as raw cents. 6500000 on screen would be a bug.
       const moneyText = await page.locator('[data-slot="payment.total_cents"]').innerText();

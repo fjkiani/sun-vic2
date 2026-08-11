@@ -36,18 +36,41 @@ const TABS = [
   { id: 'prompts', label: 'Prompts' },
 ];
 
+// onOpen keeps the card from being one big navigation trap — the agent may still
+// be mid-conversation and tapping a summary should not end it.
+function DocCard({ doc, onOpen }) {
+  return (
+    <div className="space-y-1">
+      <ReviewCard doc={doc} onOpen={onOpen} />
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={onOpen}
+          data-testid="copilot-open-doc"
+          className="min-h-[36px] px-3 rounded-lg bg-sunvic-500 text-white text-xs font-semibold"
+        >Open and finish it</button>
+        <span className="text-xs text-neutral-500 self-center">or keep talking here</span>
+      </div>
+    </div>
+  );
+}
+
 export function CopilotPage() {
   const nav = useNavigate();
   const qc = useQueryClient();
   const [params, setParams] = useSearchParams();
   const [choice] = useModelChoice();
-  const { busy, error, turns, send, threadId, thread } = useAgent();
+  const { busy, error, turns, threadDocuments, send, threadId, thread } = useAgent();
   const [input, setInput] = useState('');
   const [tab, setTab] = useState(params.get('tab') || 'business');
   const scrollerRef = useRef(null);
   const inputRef = useRef(null);
 
   const started = turns.length > 0;
+
+  // Anything the thread owns that no turn in this session announced.
+  const shownDocIds = new Set(turns.flatMap((t) => (t.new_documents || []).map((d) => d.id)));
+  const recoveredDocs = (threadDocuments || []).filter((d) => d && !shownDocIds.has(d.id));
 
   // Tab choice is in the URL, so a view of the business is a link you can send someone.
   useEffect(() => {
@@ -153,21 +176,21 @@ export function CopilotPage() {
                 )}
 
                 {t.new_documents?.map((d) => (
-                  <div key={d.id} className="space-y-1">
-                    {/* onOpen keeps the card from being one big navigation trap — the agent may
-                        still be mid-conversation and tapping a summary should not end it. */}
-                    <ReviewCard doc={d} onOpen={() => nav(docHref(d))} />
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() => nav(docHref(d))}
-                        data-testid="copilot-open-doc"
-                        className="min-h-[36px] px-3 rounded-lg bg-sunvic-500 text-white text-xs font-semibold"
-                      >Open and finish it</button>
-                      <span className="text-xs text-neutral-500 self-center">or keep talking here</span>
-                    </div>
-                  </div>
+                  <DocCard key={d.id} doc={d} onOpen={() => nav(docHref(d))} />
                 ))}
+              </div>
+            ))}
+
+            {/* Documents this thread produced that no turn reported. A turn that runs
+                past the gateway timeout is killed mid-flight: the row is written, the
+                504 eats the reply, and the card that would have announced it never
+                arrives — so the document exists and is invisible. The server now
+                re-reports everything tied to the thread on every turn, and anything
+                the conversation has not already shown gets rendered here. */}
+            {recoveredDocs.map((d) => (
+              <div key={d.id} className="space-y-1">
+                <p className="text-xs text-neutral-500">Already created in this conversation</p>
+                <DocCard doc={d} onOpen={() => nav(docHref(d))} />
               </div>
             ))}
             {busy && (

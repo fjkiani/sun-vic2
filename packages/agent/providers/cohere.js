@@ -8,6 +8,21 @@ import { clampMaxTokens } from './capabilities.js';
 const COHERE_URL = 'https://api.cohere.com/v2/chat';
 const DEFAULT_MODEL = 'command-a-03-2025';
 
+// Nothing here had a timeout, and chat() can issue three sequential requests
+// (the hallucinated-tools fallback chain), inside a turn loop that can call
+// chat() several times, inside a 60s Vercel function. That is up to 24 unbounded
+// HTTP calls behind one gateway deadline, and it is how a real turn was killed
+// with a 504 *after* it had already written a contract row — the document
+// existed and the reply that would have announced it never arrived.
+//
+// POST_TIMEOUT_MS  — a single Cohere call that has not answered in 20s will not.
+// MIN_POST_MS      — never start a request there is no time to finish.
+// CHAT_BUDGET_MS   — default ceiling for the whole retry chain when the caller
+//                    does not pass its own remaining budget.
+const POST_TIMEOUT_MS = 20_000;
+const MIN_POST_MS = 4_000;
+const CHAT_BUDGET_MS = 30_000;
+
 export class CohereProvider extends LLMProvider {
   constructor({ apiKey, model } = {}) {
     super();
@@ -19,15 +34,28 @@ export class CohereProvider extends LLMProvider {
   get id() { return 'cohere'; }
   supportsTools() { return true; }
 
-  async #post(body) {
-    const res = await fetch(COHERE_URL, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${this.apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body),
-    });
+  async #post(body, { timeoutMs = POST_TIMEOUT_MS } = {}) {
+    let res;
+    try {
+      res = await fetch(COHERE_URL, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    } catch (e) {
+      if (e?.name === 'TimeoutError' || e?.name === 'AbortError') {
+        // 504 so callers that branch on status treat it as an upstream timeout
+        // rather than as a bad request they should stop retrying.
+        throw new ProviderError(`Cohere did not respond within ${Math.round(timeoutMs / 1000)}s`, {
+          provider: 'cohere', status: 504,
+        });
+      }
+      throw e;
+    }
     if (!res.ok) {
       const detail = await res.text().catch(() => '');
       throw new ProviderError(`Cohere ${res.status}: ${detail.slice(0, 500)}`, {
@@ -129,7 +157,13 @@ export class CohereProvider extends LLMProvider {
     return !!tools?.length && tools.every((t) => Array.isArray(t.parameters?.required) && t.parameters.required.length > 0);
   }
 
-  async chat({ system, messages, tools, temperature = 0.3, max_tokens = 2000, strict_tools = false }) {
+  // budget_ms: how much wall clock the CALLER still has. The retry chain spends
+  // from it and refuses to start an attempt it cannot finish, so three fallback
+  // attempts can never outlive the request that asked for one answer.
+  async chat({ system, messages, tools, temperature = 0.3, max_tokens = 2000, strict_tools = false, budget_ms = CHAT_BUDGET_MS }) {
+    const startedAt = Date.now();
+    const remaining = () => budget_ms - (Date.now() - startedAt);
+    const post = (b) => this.#post(b, { timeoutMs: Math.max(MIN_POST_MS, Math.min(POST_TIMEOUT_MS, remaining())) });
     const base = {
       model: this.model,
       messages: [
@@ -147,26 +181,30 @@ export class CohereProvider extends LLMProvider {
 
     let data;
     if (!tools?.length) {
-      data = await this.#post(base);
+      data = await post(base);
     } else {
       const strictOk = CohereProvider.#strictEligible(tools);
       try {
-        data = await this.#post(withTools(strict_tools && strictOk ? { strict_tools: true } : {}));
+        data = await post(withTools(strict_tools && strictOk ? { strict_tools: true } : {}));
       } catch (e) {
         if (!CohereProvider.#isHallucinatedTools(e)) throw e;
+        // Out of time: surface the real error instead of spending the caller's
+        // remaining budget on a retry that will be killed at the gateway anyway.
+        if (remaining() < MIN_POST_MS) throw e;
         // Attempt 2: let Cohere constrain generation to the declared schema so
         // an undeclared tool is not expressible in the first place.
         if (strictOk && !strict_tools) {
           try {
-            data = await this.#post(withTools({ strict_tools: true }));
+            data = await post(withTools({ strict_tools: true }));
           } catch (e2) {
             if (!CohereProvider.#isHallucinatedTools(e2)) throw e2;
+            if (remaining() < MIN_POST_MS) throw e2;
             data = null;
           }
         }
         // Attempt 3: drop tools entirely. A prose answer is a worse turn than a
         // tool call, but it is an enormously better turn than a 500.
-        if (!data) data = await this.#post(base);
+        if (!data) data = await post(base);
       }
     }
     const msg = data.message || {};

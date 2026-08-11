@@ -32,6 +32,7 @@ export function useAgent() {
   const [error, setError] = useState('');
   // [{ role:'user'|'assistant', content, applied_tool_calls?, refused?, new_documents?, failed? }]
   const [turns, setTurns] = useState([]);
+  const [threadDocuments, setThreadDocuments] = useState([]);
 
   const ensureThread = useCallback(async () => {
     if (threadId) return threadId;
@@ -55,6 +56,10 @@ export function useAgent() {
       // when the model call itself fails — so anything the extractors pulled out of this very
       // message survives a provider outage instead of being rewound.
       if (result.thread) setThread(result.thread);
+      // Authoritative list of what this thread has produced. Kept separately from
+      // the per-turn new_documents so a document survives a turn whose response
+      // never arrived — the next turn re-reports it and the card comes back.
+      if (Array.isArray(result.thread_documents)) setThreadDocuments(result.thread_documents);
       setTurns((t) => [...t, {
         role: 'assistant',
         content: result.reply || '',
@@ -88,5 +93,5 @@ export function useAgent() {
     }
   }, [busy, ensureThread]);
 
-  return { threadId, thread, busy, error, turns, send };
+  return { threadId, thread, busy, error, turns, threadDocuments, send };
 }
