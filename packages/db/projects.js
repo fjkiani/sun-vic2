@@ -85,6 +85,11 @@ export async function getProjectSummary(userId, id) {
     .select('id, doc_number, template, status, title, total_cents, updated_at, created_at, payload, pdf_generated_at')
     .eq('created_by', userId)
     .eq('project_id', id)
+    // Trashed documents must not count toward project money. netlify/functions/documents.js
+    // already filters `deleted_at is null` when listing, so without this the project page
+    // shows a contract total sourced from a document the user cannot see in their list —
+    // trash a $1,500 contract and the dashboard keeps billing you for it.
+    .is('deleted_at', null)
     .order('created_at', { ascending: true });
   if (dErr) throw new Error(`getProjectSummary: ${dErr.message}`);
   const documents = docs || [];
