@@ -2,8 +2,8 @@ import React from 'react';
 import { Accordion, AccordionItem } from '../ui/Accordion.jsx';
 import { FieldRow, TextField } from '../ui/FieldRow.jsx';
 import { MoneyInput, formatUSD } from '../ui/MoneyInput.jsx';
-import { Advanced } from './ContractFormEditor.jsx';
-import { INVOICE_FORM_TABS, blocksFor } from '../doc/docSections.js';
+import { Advanced, LockToggle } from './ContractFormEditor.jsx';
+import { INVOICE_FORM_TABS, blocksFor, FORM_BLOCK_LABELS } from '../doc/docSections.js';
 import { SectionAgentButton } from '../agent/SectionAgentButton.jsx';
 import { deriveInvoiceTotals } from './formMath.js';
 
@@ -317,12 +317,84 @@ function DatesBlock({ p, set }) {
   );
 }
 
+// Six of the seven paths an invoice locks by default had no editor at all: five
+// `contractor.*` and the payment-methods list. sectionForPath() returned null for every one of
+// them, so the lock toast's "unlock it in the Legal tab" was pointing at a tab that does not
+// carry the field on an invoice — and no other tab did either. Both blocks print on the
+// invoice, so both are editable here, with the padlock that governs them.
+function ContractorBlock({ p, locks = {}, set, onToggleLock }) {
+  const c = p.contractor || {};
+  const L = (path) => !!locks[path];
+  const tog = (path) => onToggleLock && (() => onToggleLock(path));
+  return (
+    <Card>
+      <p className="px-3 pt-3 text-xs text-neutral-500 leading-snug">
+        Printed in the invoice header and footer. Locked so the copilot cannot change them —
+        unlock a row to correct it.
+      </p>
+      <FieldRow label="Legal name" value={c.legal_name} path="contractor.legal_name">
+        <TextField value={c.legal_name || ''} disabled={L('contractor.legal_name')} onChange={(v) => set('contractor.legal_name', v)} />
+        <LockToggle locked={L('contractor.legal_name')} onToggle={tog('contractor.legal_name')} />
+      </FieldRow>
+      <FieldRow label="Business address" value={c.address} hint="Until this release the invoice printed a hardcoded address instead of this field." path="contractor.address">
+        <TextField multiline rows={2} value={c.address || ''} disabled={L('contractor.address')} onChange={(v) => set('contractor.address', v)} />
+        <LockToggle locked={L('contractor.address')} onToggle={tog('contractor.address')} />
+      </FieldRow>
+      <Advanced>
+        <FieldRow label="License number" value={c.license_number} path="contractor.license_number">
+          <TextField value={c.license_number || ''} disabled={L('contractor.license_number')} onChange={(v) => set('contractor.license_number', v)} />
+          <LockToggle locked={L('contractor.license_number')} onToggle={tog('contractor.license_number')} />
+        </FieldRow>
+        <FieldRow label="Phone" value={c.phone} path="contractor.phone">
+          <TextField type="tel" value={c.phone || ''} disabled={L('contractor.phone')} onChange={(v) => set('contractor.phone', v)} />
+          <LockToggle locked={L('contractor.phone')} onToggle={tog('contractor.phone')} />
+        </FieldRow>
+        <FieldRow label="Email" value={c.email} path="contractor.email">
+          <TextField type="email" value={c.email || ''} disabled={L('contractor.email')} onChange={(v) => set('contractor.email', v)} />
+          <LockToggle locked={L('contractor.email')} onToggle={tog('contractor.email')} />
+        </FieldRow>
+        <FieldRow label="Website" value={c.website} path="contractor.website">
+          <TextField value={c.website || ''} disabled={L('contractor.website')} onChange={(v) => set('contractor.website', v)} />
+          <LockToggle locked={L('contractor.website')} onToggle={tog('contractor.website')} />
+        </FieldRow>
+      </Advanced>
+    </Card>
+  );
+}
+
+// `payment_methods` is an array of strings, so the lock lives on the array itself and
+// isPathLocked's ancestor walk covers every row. The old lock key was 'payment_methods.text',
+// a path InvoicePayload cannot produce, so nothing was ever actually locked.
+function PaymentMethodsBlock({ p, locks = {}, set, onToggleLock }) {
+  const methods = Array.isArray(p.payment_methods) ? p.payment_methods : [];
+  const locked = !!locks.payment_methods;
+  return (
+    <Card>
+      <div className="px-3 pt-3 flex items-start justify-between gap-2">
+        <p className="text-xs text-neutral-500 leading-snug flex-1">
+          Printed under “How to pay”. Standard Sunvic wording — New Jersey does not prescribe it.
+        </p>
+        <LockToggle locked={locked} onToggle={onToggleLock && (() => onToggleLock('payment_methods'))} />
+      </div>
+      {methods.length === 0 && (
+        <p className="px-3 py-3 text-sm text-neutral-400 italic">No payment methods listed.</p>
+      )}
+      {methods.map((m, i) => (
+        <FieldRow key={i} label={`Method ${i + 1}`} value={m} path={`payment_methods.${i}`}>
+          <TextField multiline rows={2} value={m || ''} disabled={locked} onChange={(v) => set(`payment_methods.${i}`, v)} />
+        </FieldRow>
+      ))}
+    </Card>
+  );
+}
+
 // ── shell ────────────────────────────────────────────────────
 
-const BLOCK_ORDER = ['cover', 'homeowner', 'payment', 'timeline'];
+const BLOCK_ORDER = ['cover', 'homeowner', 'contractor', 'payment', 'payment_methods', 'timeline'];
 
-export function InvoiceEditor({ doc, onSave, section = null }) {
+export function InvoiceEditor({ doc, onSave, onToggleLock, section = null }) {
   const p = doc?.payload || {};
+  const locks = doc?.locks || {};
   const set = (path, value) => onSave({ [path]: value });
   const setMany = (patch) => onSave(patch);
 
@@ -333,23 +405,32 @@ export function InvoiceEditor({ doc, onSave, section = null }) {
   const billToIncomplete = !b.client_name || !b.property_address;
   const due = Number(p.totals?.total_due_cents) || 0;
 
+  // Same string as the lock message names — see FORM_BLOCK_LABELS.
+  const T = FORM_BLOCK_LABELS.invoice;
   const meta = {
-    cover: { title: 'Invoice details', subtitle: p.milestone_label || p.invoice_number || 'No milestone set' },
+    cover: { title: T.cover, subtitle: p.milestone_label || p.invoice_number || 'No milestone set' },
     homeowner: {
-      title: 'Bill to',
+      title: T.homeowner,
       subtitle: b.client_name || 'Name and address needed',
       warn: billToIncomplete,
       badge: billToIncomplete ? 'Incomplete' : null,
     },
-    payment: { title: 'Amount', subtitle: due ? formatUSD(due) : 'No amount set' },
-    timeline: { title: 'Dates', subtitle: humanDate(p.due_date) ? `Due ${humanDate(p.due_date)}` : 'No due date' },
+    contractor: { title: T.contractor, subtitle: p.contractor?.legal_name || '' },
+    payment: { title: T.payment, subtitle: due ? formatUSD(due) : 'No amount set' },
+    payment_methods: {
+      title: T.payment_methods,
+      subtitle: `${(p.payment_methods || []).length} method${(p.payment_methods || []).length === 1 ? '' : 's'}`,
+    },
+    timeline: { title: T.timeline, subtitle: humanDate(p.due_date) ? `Due ${humanDate(p.due_date)}` : 'No due date' },
   };
 
   function renderBlock(id) {
     switch (id) {
       case 'cover': return <CoverBlock p={p} set={set} />;
       case 'homeowner': return <BillToBlock p={p} set={set} />;
+      case 'contractor': return <ContractorBlock p={p} locks={locks} set={set} onToggleLock={onToggleLock} />;
       case 'payment': return <AmountBlock p={p} set={set} setMany={setMany} />;
+      case 'payment_methods': return <PaymentMethodsBlock p={p} locks={locks} set={set} onToggleLock={onToggleLock} />;
       case 'timeline': return <DatesBlock p={p} set={set} />;
       default: return null;
     }

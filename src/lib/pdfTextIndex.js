@@ -212,11 +212,23 @@ export function resolveTextToPath(index, clicked, lineText = '') {
   // 3. The PDF splits long text across runs, so the clicked fragment is a substring of the
   //    leaf. Take the SHORTEST containing leaf — the tightest enclosing field, not the whole
   //    document. Require a real fragment so a stray "the" cannot match a paragraph.
+  //
+  //    The trailing hyphen is a measured special case, not a defensive guess. @react-pdf
+  //    hyphenates at the line break, so the last run of a wrapped word is emitted as
+  //    "Demolition & Founda-". Loose-folded that is `demolition founda-`, which is NOT a
+  //    substring of the leaf `demolition foundation` — they diverge at index 17, `-` vs `t`.
+  //    Every wrapped word on the page therefore refused a click on a field that exists.
+  //    Dropping one trailing hyphen is safe: `loose` already collapses punctuation, so no
+  //    payload value can differ from another only by a terminal hyphen.
   if (cl.length >= 4) {
-    const containing = index
-      .filter((l) => l.keys.some((k) => k.includes(cl)))
-      .sort((a, b) => a.loose.length - b.loose.length);
-    if (containing.length) {
+    const forms = [cl];
+    const dehyph = cl.replace(/-$/, '');
+    if (dehyph !== cl && dehyph.length >= 4) forms.push(dehyph);
+    for (const form of forms) {
+      const containing = index
+        .filter((l) => l.keys.some((k) => k.includes(form)))
+        .sort((a, b) => a.loose.length - b.loose.length);
+      if (!containing.length) continue;
       const shortest = containing[0];
       const tie = containing.filter((l) => l.loose.length === shortest.loose.length);
       if (tie.length === 1) {
@@ -268,4 +280,147 @@ export function labelForPath(path) {
     .split('.')
     .map((p) => (/^\d+$/.test(p) ? `#${Number(p) + 1}` : p.replace(/_/g, ' ')))
     .join(' › ');
+}
+
+/**
+ * WHY is this path locked — and is the reason we have been giving true?
+ *
+ * The viewer used to answer every lock with one sentence: "required NJ contract language."
+ * scripts/probe-lock-reachability.mjs measures that claim against the 30 paths the app locks
+ * by default. It is false for 28 of them. Only the cancellation notice is fixed by statute
+ * word-for-word; the insurance statement has a statutory *number* in ours wording; the rest is
+ * either the company's own contact details or Sunvic's own boilerplate.
+ *
+ * Grounding:
+ *   N.J.S.A. 56:8-151(b) — the "YOU MAY CANCEL THIS CONTRACT" notice is prescribed verbatim,
+ *     in at least 10-point bold type, and must carry the contractor's name, address and phone.
+ *   N.J.A.C. 13:45A-16.2(a)(12) — a home-improvement contract over $500 must SET FORTH the
+ *     seller's legal name and business address. It requires those items to be present. It does
+ *     not freeze their values, and it says nothing at all about warranty or dispute wording.
+ *
+ * So the honest classification is three-way, and two of the three are the user's to change.
+ * Pure and import-free like the rest of this module, so it is testable without React.
+ *
+ * @returns {{klass:'statutory'|'identity'|'standard_terms', headline:string, detail:string,
+ *            inlineUnlock:boolean}}
+ */
+const STATUTORY_LOCKS = {
+  'right_to_cancel.text': {
+    headline: 'Fixed word-for-word by NJ law',
+    detail: 'N.J.S.A. 56:8-151 prescribes this cancellation notice verbatim. Reword it and the contract can become unenforceable.',
+  },
+  'insurance.text': {
+    headline: 'NJ sets the coverage this has to state',
+    detail: 'New Jersey requires proof of $500,000 general liability. The sentence is ours; the amount is not.',
+  },
+};
+
+export function lockReason(path) {
+  const s = STATUTORY_LOCKS[String(path)];
+  if (s) return { klass: 'statutory', ...s, inlineUnlock: false };
+  if (/^contractor\./.test(String(path))) {
+    return {
+      klass: 'identity',
+      headline: 'Your own company details',
+      detail: 'Locked so the copilot cannot quietly rewrite them. NJ requires these to appear on the contract — not to have these particular values.',
+      inlineUnlock: true,
+    };
+  }
+  return {
+    klass: 'standard_terms',
+    headline: 'Standard Sunvic wording, not required by NJ',
+    detail: 'Locked so it is not reworded by accident. Change it whenever this job needs different terms.',
+    inlineUnlock: true,
+  };
+}
+
+/**
+ * The clicked run is not a field — but does a field's value sit INSIDE it?
+ *
+ * This is the third of the four situations "That text is part of the template" was covering.
+ * `SUNVIC CONTRACTORS LLC is responsible for obtaining all required permits` is one authored
+ * sentence in the PDF component, so it is genuinely not a field; but the company name inside it
+ * is `contractor.legal_name` and the user who clicked it almost certainly wanted that. Reverse
+ * containment (leaf inside click, rather than click inside leaf) separates "fixed sentence with
+ * your data in it" from "fixed sentence with nothing of yours in it", and the two deserve
+ * different answers.
+ *
+ * Longest match wins, and short leaves are ignored — a two-character value would match half the
+ * document. Returns null rather than guessing.
+ */
+export function findEmbeddedLeaf(index, clicked, minLen = 6) {
+  const cl = loose(clicked);
+  if (cl.length < minLen) return null;
+  let best = null;
+  for (const l of index) {
+    if (l.loose.length < minLen) continue;
+    if (l.loose.length >= cl.length) continue;   // that is containment the other way round
+    if (!cl.includes(l.loose)) continue;
+    if (!best || l.loose.length > best.loose.length) best = l;
+  }
+  return best ? { path: best.path, value: best.value, kind: best.kind } : null;
+}
+
+/**
+ * Is this text a number the document CALCULATED rather than a number anyone stored?
+ *
+ * "That text is part of the template" was doing duty for four unrelated situations, and this is
+ * the one that made it feel like a lie. A contract prints "$9,750.00" nine times against a
+ * payment schedule that stores only `{milestone, percent, condition}` — the dollar figure is
+ * milestoneAmountCents(total, percent) and exists in no payload leaf. Telling the author that
+ * their own money is "part of the template" is both false and a dead end; they need to be sent
+ * to the two inputs that produce it.
+ *
+ * Reimplemented rather than imported: this module is deliberately dependency-free so it can be
+ * unit-tested and shipped to the browser without pulling in the template package. The rounding
+ * below must stay identical to packages/templates/format.js#milestoneAmountCents, and
+ * scripts/test-pdf-textindex.mjs asserts that by importing both.
+ *
+ * @returns {{source:'milestone_percent', percent:number, index:number, label:string,
+ *            totalPath:string, percentPath:string} | null}
+ */
+export function explainComputed(payload, clicked, lineText = '') {
+  const parsed = parseInput('money', clicked);
+  if (!parsed.ok) return null;
+  const cents = parsed.value;
+  if (!Number.isFinite(cents) || cents <= 0) return null;
+
+  const total = Number(payload?.payment?.total_cents);
+  const schedule = payload?.payment?.schedule;
+  if (!Number.isFinite(total) || total <= 0 || !Array.isArray(schedule)) return null;
+
+  const hits = [];
+  for (let i = 0; i < schedule.length; i++) {
+    const pct = Number(schedule[i]?.percent);
+    if (!Number.isFinite(pct)) continue;
+    if (Math.round(total * pct / 100) !== cents) continue;
+    hits.push(i);
+  }
+  if (!hits.length) return null;
+
+  // Two milestones at the same percentage print the same dollar figure, and "Edit the
+  // percentage" would then aim at whichever one happened to be first. The milestone name is
+  // printed on the same line as its amount, so use it; when it does not settle the question,
+  // say so rather than pointing confidently at the wrong row.
+  let index = hits[0];
+  let disambiguated = hits.length === 1;
+  if (hits.length > 1 && lineText) {
+    const ll = loose(lineText);
+    const named = hits.filter((i) => {
+      const m = loose(String(schedule[i]?.milestone || ''));
+      return m.length >= 3 && ll.includes(m);
+    });
+    if (named.length === 1) { index = named[0]; disambiguated = true; }
+  }
+
+  return {
+    source: 'milestone_percent',
+    percent: Number(schedule[index]?.percent),
+    index,
+    label: String(schedule[index]?.milestone || `payment ${index + 1}`),
+    matches: hits.length,
+    ambiguous: !disambiguated,
+    totalPath: 'payment.total_cents',
+    percentPath: `payment.schedule.${index}.percent`,
+  };
 }

@@ -1,4 +1,5 @@
 import React from 'react';
+import { lockReason, labelForPath } from '../../lib/pdfTextIndex.js';
 
 // AgentTurnDetail — what the agent actually DID on a turn, rendered identically wherever
 // the agent is used.
@@ -53,10 +54,19 @@ function detailFor(call) {
 }
 
 // chat.js emits reason:'locked' with a path; thread-agent.js emits an error string.
+//
+// This used to say "required NJ contract language" for every locked path, the same untrue
+// sentence the PDF viewer was showing. Measured over the 30 paths the app locks by default, the
+// claim holds for two. It is now derived from lockReason() — the single classifier both
+// surfaces read — so the agent's refusal and the document's refusal cannot say different things
+// about the same field.
 function refusalText(r) {
   if (r?.reason === 'locked' || r?.locked?.length) {
-    const paths = r.locked?.length ? r.locked.join(', ') : r.path;
-    return `${paths} is locked — required NJ contract language`;
+    const paths = r.locked?.length ? r.locked : [r.path].filter(Boolean);
+    if (!paths.length) return 'locked';
+    const reasons = [...new Set(paths.map((p) => lockReason(p).headline.toLowerCase()))];
+    const why = reasons.length === 1 ? reasons[0] : 'locked for different reasons';
+    return `${paths.map(labelForPath).join(', ')} is locked — ${why}. Unlock it on the document to change it.`;
   }
   return r?.error || r?.reason || 'refused';
 }

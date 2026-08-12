@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Accordion, AccordionItem } from '../ui/Accordion.jsx';
 import { FieldRow, TextField } from '../ui/FieldRow.jsx';
 import { MoneyInput, formatUSD } from '../ui/MoneyInput.jsx';
-import { CONTRACT_FORM_TABS, blocksFor } from '../doc/docSections.js';
+import { CONTRACT_FORM_TABS, blocksFor, FORM_BLOCK_LABELS } from '../doc/docSections.js';
 import { SectionAgentButton } from '../agent/SectionAgentButton.jsx';
 import { scheduleSum, laborMaterialsDrift } from './formMath.js';
 import { getScopePreset, DEFAULT_SCOPE_QTY } from '../../../packages/templates/defaults.js';
@@ -46,7 +46,7 @@ function humanDate(v) {
 
 // Lock affordance. Previously a bare icon next to a 10px label; now an explicit control
 // that only appears once a row is open, so the resting list stays readable.
-function LockToggle({ locked, onToggle }) {
+export function LockToggle({ locked, onToggle }) {
   if (!onToggle) return null;
   return (
     <button
@@ -347,24 +347,24 @@ function ScheduleEditor({ payload, onSave }) {
 
 // ── blocks ───────────────────────────────────────────────────
 
-function CoverBlock({ payload, locks, set, onToggleLock }) {
+function CoverBlock({ payload, locks = {}, set, onToggleLock }) {
   return (
     <Card>
       <FieldRow label="Job number" value={payload.job_no} hint="Your internal reference for this job." path="job_no">
-        <TextField value={payload.job_no || ''} onChange={(v) => set('job_no', v)} />
+        <TextField value={payload.job_no || ''} disabled={!!locks?.['job_no']} onChange={(v) => set('job_no', v)} />
         <LockToggle locked={!!locks['job_no']} onToggle={onToggleLock && (() => onToggleLock('job_no'))} />
       </FieldRow>
       <FieldRow label="Prepared on" value={humanDate(payload.prepared_on)} path="prepared_on">
-        <TextField type="date" value={fmtDate(payload.prepared_on)} onChange={(v) => set('prepared_on', v)} />
+        <TextField type="date" value={fmtDate(payload.prepared_on)} disabled={!!locks?.['prepared_on']} onChange={(v) => set('prepared_on', v)} />
         <LockToggle locked={!!locks['prepared_on']} onToggle={onToggleLock && (() => onToggleLock('prepared_on'))} />
       </FieldRow>
       <Advanced>
         <FieldRow label="Cover heading" value={payload.for_label} hint="The line that appears under “Prepared for” on the cover page." path="for_label">
-          <TextField value={payload.for_label || ''} onChange={(v) => set('for_label', v)} />
+          <TextField value={payload.for_label || ''} disabled={!!locks?.['for_label']} onChange={(v) => set('for_label', v)} />
           <LockToggle locked={!!locks['for_label']} onToggle={onToggleLock && (() => onToggleLock('for_label'))} />
         </FieldRow>
         <FieldRow label="Contract type" value={payload.contract_type} hint="Printed on the cover page. Leave as the standard fixed-price wording unless this job is billed differently." path="contract_type">
-          <TextField value={payload.contract_type || ''} onChange={(v) => set('contract_type', v)} />
+          <TextField value={payload.contract_type || ''} disabled={!!locks?.['contract_type']} onChange={(v) => set('contract_type', v)} />
           <LockToggle locked={!!locks['contract_type']} onToggle={onToggleLock && (() => onToggleLock('contract_type'))} />
         </FieldRow>
       </Advanced>
@@ -372,55 +372,79 @@ function CoverBlock({ payload, locks, set, onToggleLock }) {
   );
 }
 
-function HomeownerBlock({ payload, locks, set, onToggleLock }) {
+function HomeownerBlock({ payload, locks = {}, set, onToggleLock }) {
   const h = payload.homeowner || {};
   return (
     <Card>
       <FieldRow label="Full name" value={h.name} required hint="Exactly as it should appear on the signature page." path="homeowner.name">
-        <TextField value={h.name || ''} onChange={(v) => set('homeowner.name', v)} placeholder="Jane Smith" />
+        <TextField value={h.name || ''} disabled={!!locks?.['homeowner.name']} onChange={(v) => set('homeowner.name', v)} placeholder="Jane Smith" />
         <LockToggle locked={!!locks['homeowner.name']} onToggle={onToggleLock && (() => onToggleLock('homeowner.name'))} />
       </FieldRow>
       <FieldRow label="Job address" value={h.address} required hint="Where the work happens. This is the address printed on the contract." path="homeowner.address">
-        <TextField multiline rows={2} value={h.address || ''} onChange={(v) => set('homeowner.address', v)} placeholder="12 Maple Ave, Edison, NJ 08817" />
+        <TextField multiline rows={2} value={h.address || ''} disabled={!!locks?.['homeowner.address']} onChange={(v) => set('homeowner.address', v)} placeholder="12 Maple Ave, Edison, NJ 08817" />
         <LockToggle locked={!!locks['homeowner.address']} onToggle={onToggleLock && (() => onToggleLock('homeowner.address'))} />
       </FieldRow>
       <FieldRow label="Phone" value={h.phone} path="homeowner.phone">
-        <TextField type="tel" value={h.phone || ''} onChange={(v) => set('homeowner.phone', v)} />
+        <TextField type="tel" value={h.phone || ''} disabled={!!locks?.['homeowner.phone']} onChange={(v) => set('homeowner.phone', v)} />
         <LockToggle locked={!!locks['homeowner.phone']} onToggle={onToggleLock && (() => onToggleLock('homeowner.phone'))} />
       </FieldRow>
       <FieldRow label="Email" value={h.email} hint="Used when you email this document." path="homeowner.email">
-        <TextField type="email" value={h.email || ''} onChange={(v) => set('homeowner.email', v)} />
+        <TextField type="email" value={h.email || ''} disabled={!!locks?.['homeowner.email']} onChange={(v) => set('homeowner.email', v)} />
         <LockToggle locked={!!locks['homeowner.email']} onToggle={onToggleLock && (() => onToggleLock('homeowner.email'))} />
       </FieldRow>
     </Card>
   );
 }
 
-function ContractorBlock({ payload, set }) {
+// Every one of these six paths is locked by default, and until now this block was rendered as
+// `<ContractorBlock payload set />` — no `locks`, no `onToggleLock`. The consequences, all
+// measured rather than assumed (scripts/probe-lock-reachability.mjs and
+// scripts/probe-lock-desync.mjs against the live API):
+//
+//   * The PDF refused a click here with "locked — required NJ contract language. Unlock it in
+//     the Legal tab." These fields are not in the Legal tab; they are right here.
+//   * There was no padlock here, so even the user who found the right tab could not unlock.
+//   * The inputs were nonetheless fully editable. Typing produced a PATCH the server answered
+//     200 to and then discarded — the response literally says `skipped_locks:
+//     ["contractor.address"]`. The value reverted on the next load. Silent data loss.
+//
+// So: real padlock per row, and the input is disabled while the padlock is closed, because an
+// enabled input that cannot save is worse than no input at all.
+function ContractorBlock({ payload, locks = {}, set, onToggleLock }) {
   const c = payload.contractor || {};
+  const L = (p) => !!locks[p];
+  const tog = (p) => onToggleLock && (() => onToggleLock(p));
   return (
     <Card>
       <p className="px-3 pt-3 text-xs text-neutral-500 leading-snug">
-        Filled from your business settings. Change these only if this job is issued under different details.
+        Filled from your business settings and locked so the copilot cannot change them.
+        New Jersey requires these to appear on the contract; it does not require these exact
+        values, so unlock any row you need to correct.
       </p>
       <FieldRow label="Legal name" value={c.legal_name} path="contractor.legal_name">
-        <TextField value={c.legal_name || ''} onChange={(v) => set('contractor.legal_name', v)} />
+        <TextField value={c.legal_name || ''} disabled={L('contractor.legal_name')} onChange={(v) => set('contractor.legal_name', v)} />
+        <LockToggle locked={L('contractor.legal_name')} onToggle={tog('contractor.legal_name')} />
       </FieldRow>
       <FieldRow label="License number" value={c.license_number} hint="NJ Home Improvement Contractor registration number." path="contractor.license_number">
-        <TextField value={c.license_number || ''} onChange={(v) => set('contractor.license_number', v)} />
+        <TextField value={c.license_number || ''} disabled={L('contractor.license_number')} onChange={(v) => set('contractor.license_number', v)} />
+        <LockToggle locked={L('contractor.license_number')} onToggle={tog('contractor.license_number')} />
       </FieldRow>
       <Advanced>
-        <FieldRow label="Address" value={c.address} path="contractor.address">
-          <TextField multiline rows={2} value={c.address || ''} onChange={(v) => set('contractor.address', v)} />
+        <FieldRow label="Address" value={c.address} hint="Printed in Section A and in the statutory cancellation notice." path="contractor.address">
+          <TextField multiline rows={2} value={c.address || ''} disabled={L('contractor.address')} onChange={(v) => set('contractor.address', v)} />
+          <LockToggle locked={L('contractor.address')} onToggle={tog('contractor.address')} />
         </FieldRow>
         <FieldRow label="Phone" value={c.phone} path="contractor.phone">
-          <TextField type="tel" value={c.phone || ''} onChange={(v) => set('contractor.phone', v)} />
+          <TextField type="tel" value={c.phone || ''} disabled={L('contractor.phone')} onChange={(v) => set('contractor.phone', v)} />
+          <LockToggle locked={L('contractor.phone')} onToggle={tog('contractor.phone')} />
         </FieldRow>
         <FieldRow label="Email" value={c.email} path="contractor.email">
-          <TextField type="email" value={c.email || ''} onChange={(v) => set('contractor.email', v)} />
+          <TextField type="email" value={c.email || ''} disabled={L('contractor.email')} onChange={(v) => set('contractor.email', v)} />
+          <LockToggle locked={L('contractor.email')} onToggle={tog('contractor.email')} />
         </FieldRow>
         <FieldRow label="Website" value={c.website} path="contractor.website">
-          <TextField value={c.website || ''} onChange={(v) => set('contractor.website', v)} />
+          <TextField value={c.website || ''} disabled={L('contractor.website')} onChange={(v) => set('contractor.website', v)} />
+          <LockToggle locked={L('contractor.website')} onToggle={tog('contractor.website')} />
         </FieldRow>
       </Advanced>
     </Card>
@@ -575,7 +599,10 @@ function PaymentBlock({ payload, set }) {
   );
 }
 
-function TimelineBlock({ payload, set }) {
+// `timeline.disclaimer` is the seventh path that is locked by default and lives on the Form
+// side, so it had the same problem as the contractor rows: no padlock, an editable input, and a
+// PDF toast pointing at the Legal tab.
+function TimelineBlock({ payload, locks = {}, set, onToggleLock }) {
   const t = payload.timeline || {};
   return (
     <Card>
@@ -589,8 +616,9 @@ function TimelineBlock({ payload, set }) {
         <TextField type="date" value={fmtDate(t.final_completion_date)} onChange={(v) => set('timeline.final_completion_date', v || null)} />
       </FieldRow>
       <Advanced>
-        <FieldRow label="Timeline disclaimer" value={t.disclaimer ? `${String(t.disclaimer).slice(0, 60)}…` : ''} hint="Standard wording about weather and permit delays." path="timeline.disclaimer">
-          <TextField multiline rows={4} value={t.disclaimer || ''} onChange={(v) => set('timeline.disclaimer', v)} />
+        <FieldRow label="Timeline disclaimer" value={t.disclaimer ? `${String(t.disclaimer).slice(0, 60)}…` : ''} hint="Standard Sunvic wording about weather and permit delays. Not required by New Jersey." path="timeline.disclaimer">
+          <TextField multiline rows={4} value={t.disclaimer || ''} disabled={!!locks['timeline.disclaimer']} onChange={(v) => set('timeline.disclaimer', v)} />
+          <LockToggle locked={!!locks['timeline.disclaimer']} onToggle={onToggleLock && (() => onToggleLock('timeline.disclaimer'))} />
         </FieldRow>
       </Advanced>
     </Card>
@@ -616,41 +644,44 @@ export function ContractFormEditor({ doc, onSave, onToggleLock, section = null }
   const h = payload.homeowner || {};
   const homeownerIncomplete = !h.name || !h.address;
 
+  // Titles come from FORM_BLOCK_LABELS so the heading the user reads and the destination the
+  // lock message names are one string. They used to be two copies that happened to match.
+  const T = FORM_BLOCK_LABELS.contract;
   const meta = {
-    cover: { title: 'Document details', subtitle: payload.job_no ? `Job ${payload.job_no}` : 'No job number' },
+    cover: { title: T.cover, subtitle: payload.job_no ? `Job ${payload.job_no}` : 'No job number' },
     homeowner: {
-      title: 'Homeowner',
+      title: T.homeowner,
       subtitle: h.name || 'Name and address needed',
       warn: homeownerIncomplete,
       badge: homeownerIncomplete ? 'Incomplete' : null,
     },
-    contractor: { title: 'Your company', subtitle: payload.contractor?.legal_name || '' },
-    agreement_summary: { title: 'Agreement summary', subtitle: 'Section A opening language' },
+    contractor: { title: T.contractor, subtitle: payload.contractor?.legal_name || '' },
+    agreement_summary: { title: T.agreement_summary, subtitle: 'Section A opening language' },
     scope_of_work: {
-      title: 'Scope of work',
+      title: T.scope_of_work,
       subtitle: scopeGroups.length
         ? `${scopeGroups.length} area${scopeGroups.length === 1 ? '' : 's'} · ${taskCount} item${taskCount === 1 ? '' : 's'}`
         : 'Nothing added yet',
       badge: taskCount || null,
     },
     payment: {
-      title: 'Payment',
+      title: T.payment,
       subtitle: payload.payment?.total_cents ? formatUSD(payload.payment.total_cents) : 'No total set',
       warn: scheduleOff,
       badge: scheduleOff ? `${sum.toFixed(0)}%` : null,
     },
-    timeline: { title: 'Timeline', subtitle: humanDate(payload.timeline?.start_date) || 'No start date' },
+    timeline: { title: T.timeline, subtitle: humanDate(payload.timeline?.start_date) || 'No start date' },
   };
 
   function renderBlock(id) {
     switch (id) {
       case 'cover': return <CoverBlock payload={payload} locks={locks} set={set} onToggleLock={onToggleLock} />;
       case 'homeowner': return <HomeownerBlock payload={payload} locks={locks} set={set} onToggleLock={onToggleLock} />;
-      case 'contractor': return <ContractorBlock payload={payload} set={set} />;
+      case 'contractor': return <ContractorBlock payload={payload} locks={locks} set={set} onToggleLock={onToggleLock} />;
       case 'agreement_summary': return <AgreementBlock payload={payload} set={set} />;
       case 'scope_of_work': return <ScopeBlock payload={payload} set={set} />;
       case 'payment': return <PaymentBlock payload={payload} set={set} />;
-      case 'timeline': return <TimelineBlock payload={payload} set={set} />;
+      case 'timeline': return <TimelineBlock payload={payload} locks={locks} set={set} onToggleLock={onToggleLock} />;
       default: return null;
     }
   }

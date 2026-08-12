@@ -313,5 +313,9 @@ export const DEFAULT_INVOICE_LOCKS = {
   'contractor.email': true,
   'contractor.website': true,
   'invoice_terms.text': true,
-  'payment_methods.text': true,
+  // `payment_methods` is z.array(z.string()) on InvoicePayload, so the old key
+  // 'payment_methods.text' addressed a path that cannot exist — the lock was a no-op and the
+  // four real leaves (payment_methods.0 … .3) were never protected. isPathLocked() walks
+  // ancestors, so locking the array itself covers every element.
+  payment_methods: true,
 };

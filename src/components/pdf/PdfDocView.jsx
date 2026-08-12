@@ -21,7 +21,9 @@ import { InvoicePDF, ContractPDF } from '../../../packages/templates/pdf/index.j
 import {
   buildLeafIndex, resolveTextToPath, isWritableLeaf, isPathLocked,
   labelForPath, parseInput, getPath, norm,
+  lockReason, explainComputed, findEmbeddedLeaf,
 } from '../../lib/pdfTextIndex.js';
+import { whereToUnlock } from '../doc/docSections.js';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc;
 
@@ -39,6 +41,8 @@ export function PdfDocView({
   focusPath,              // scroll the document to this field when it changes
   onFieldFocus,           // (path) => void          — fired when the user edits, for the form side
   onVisiblePath,          // (path) => void          — fired as you scroll the document
+  onJumpToField,          // (path) => void          — select the owning tab AND sub-tab, then scroll
+  onUnlockField,          // (path) => void          — flip one lock off, in place
   editable = true,
 }) {
   const Component = template === 'contract' ? ContractPDF : InvoicePDF;
@@ -220,43 +224,145 @@ export function PdfDocView({
     setActive(null);
   }, [focusPath, pages, zoom, anchorFor]);
 
+  // ── refusals that tell the truth and offer a way out ────────────────────
+  // A toast is now {text, sub?, actions?}. A refusal with no next step is what made this screen
+  // feel like a wall: the user is told no, given a wrong direction, and left to hunt. Anything
+  // that CAN be resolved carries the button that resolves it.
+  //
+  // Auto-dismiss only applies to toasts with no actions. A message that offers "Unlock and edit
+  // here" must not evaporate at 3.2s while the user is still reading it.
+  const toastTimer = useRef(null);
+  const showToast = useCallback((t) => {
+    clearTimeout(toastTimer.current);
+    setToast(t);
+    if (!t?.actions?.length) toastTimer.current = setTimeout(() => setToast(null), 3600);
+  }, []);
+  useEffect(() => () => clearTimeout(toastTimer.current), []);
+
+  const openEditor = useCallback((item, page, path, kind) => {
+    const rect = { left: item.left * zoom, top: item.top * zoom, width: item.width * zoom, height: item.height * zoom };
+    const raw = getPath(debounced, path);
+    const draft = kind === 'money'
+      ? (Number.isFinite(Number(raw)) ? (Number(raw) / 100).toFixed(2) : '')
+      : (raw == null ? '' : String(raw));
+    setActive({ path, kind: kind || 'text', page, rect, draft });
+    onFieldFocus?.(path);
+  }, [zoom, debounced, onFieldFocus]);
+
   // ── click → path ────────────────────────────────────────────────────────
   function onTextClick(e, item, page, r) {
     if (!editable) return;
     e.stopPropagation();
 
-    if (!r.hit) {
-      const why = {
-        ambiguous: `"${norm(item.str)}" appears in ${r.candidates?.length ?? 2} fields — open the Edit view to pick one.`,
-        not_in_payload: 'That text is part of the template, not a field you can change.',
-        too_short: 'Too short to identify a field.',
-        empty: '',
-      }[r.reason] || 'Not an editable field.';
-      if (why) { setToast(why); setTimeout(() => setToast(null), 3200); }
-      return;
-    }
-    if (r.locked) {
-      setToast(`${labelForPath(r.path)} is locked — required NJ contract language. Unlock it in the Legal tab.`);
-      setTimeout(() => setToast(null), 4000);
-      return;
-    }
-    const rect = { left: item.left * zoom, top: item.top * zoom, width: item.width * zoom, height: item.height * zoom };
-    setActive({ path: r.path, kind: r.kind || 'text', page, rect, draft: displayFor(r.path, r.kind) });
-    onFieldFocus?.(r.path);
+    if (!r.hit) { explainRefusal(item, page, r); return; }
+    if (r.locked) { explainLock(item, page, r); return; }
+    openEditor(item, page, r.path, r.kind);
   }
 
-  function displayFor(path, kind) {
-    const raw = getPath(debounced, path);
-    if (kind === 'money') { const n = Number(raw); return Number.isFinite(n) ? (n / 100).toFixed(2) : ''; }
-    return raw == null ? '' : String(raw);
+  // The lock message used to be one hardcoded sentence for all 30 locked paths:
+  // "required NJ contract language. Unlock it in the Legal tab." Measured against the paths the
+  // app actually locks, the NJ claim is false for 28 of them and the Legal-tab direction is
+  // wrong or nowhere for 13. Both halves are now derived — the reason from lockReason(), the
+  // destination from whereToUnlock() — so neither can drift from the truth again.
+  function explainLock(item, page, r) {
+    const reason = lockReason(r.path);
+    const where = whereToUnlock(template, r.path);
+    const actions = [];
+    if (onUnlockField && reason.inlineUnlock) {
+      actions.push({
+        label: 'Unlock and edit here',
+        run: () => { onUnlockField(r.path); openEditor(item, page, r.path, r.kind); },
+      });
+    }
+    if (onJumpToField && where) {
+      actions.push({ label: `Open ${where.label}`, run: () => onJumpToField(r.path) });
+    }
+    showToast({
+      text: `${labelForPath(r.path)} — ${reason.headline}.`,
+      sub: where
+        ? `${reason.detail} The field is in ${where.label}.`
+        : reason.detail,
+      actions,
+      testid: `lock-${reason.klass}`,
+    });
+  }
+
+  // "That text is part of the template, not a field you can change" was answering four
+  // different questions with one sentence, and it read as a brush-off because for three of them
+  // it was wrong. Each cause now gets its own answer.
+  function explainRefusal(item, page, r) {
+    const clicked = norm(item.str);
+
+    if (r.reason === 'ambiguous') {
+      const cands = (r.candidates || []).slice(0, 3);
+      showToast({
+        text: `“${clicked}” is in ${r.candidates?.length ?? 2} fields. Which one?`,
+        actions: cands.map((c) => ({
+          label: labelForPath(c.path),
+          run: () => openEditor(item, page, c.path, c.kind),
+        })),
+        testid: 'refusal-ambiguous',
+      });
+      return;
+    }
+
+    if (r.reason === 'too_short') {
+      showToast({ text: 'Too short to identify a field — tap a longer piece of the line.', testid: 'refusal-too-short' });
+      return;
+    }
+
+    if (r.reason === 'empty') return;
+
+    // (1) A number the document worked out. The payment schedule stores percentages, so the
+    //     dollar figure printed against each milestone exists in no field — but it is entirely
+    //     under the author's control through the two inputs that produce it.
+    const computed = explainComputed(debounced, clicked, item.lineText || '');
+    if (computed) {
+      showToast({
+        text: `${clicked} is calculated, not stored — ${computed.percent}% of the contract total.`,
+        sub: computed.ambiguous
+          ? `${computed.matches} milestones are set to ${computed.percent}%, so they all print this figure.`
+          : `It changes when you change the total or the “${computed.label}” percentage.`,
+        actions: onJumpToField ? [
+          {
+            label: computed.ambiguous ? 'Edit the payment schedule' : 'Edit the percentage',
+            run: () => onJumpToField(computed.percentPath),
+          },
+          { label: 'Edit the total', run: () => onJumpToField(computed.totalPath) },
+        ] : [],
+        testid: 'refusal-computed',
+      });
+      return;
+    }
+
+    // (2) Fixed wording, but with one of the author's own values printed inside it.
+    const embedded = findEmbeddedLeaf(index, clicked);
+    if (embedded) {
+      showToast({
+        text: `This sentence is fixed wording, but “${embedded.value}” inside it is your ${labelForPath(embedded.path)}.`,
+        sub: 'Change it there and it changes everywhere it is printed.',
+        actions: onJumpToField ? [{ label: `Edit ${labelForPath(embedded.path)}`, run: () => onJumpToField(embedded.path) }] : [],
+        testid: 'refusal-embedded',
+      });
+      return;
+    }
+
+    // (3) Genuinely static: headings, table captions, authored legal sentences.
+    showToast({
+      text: 'Fixed wording printed by the template — there is no field behind it.',
+      sub: 'Headings, table captions and standard clauses live in the document design, not in your data.',
+      testid: 'refusal-static',
+    });
   }
 
   function commit() {
     if (!active) return;
     const parsed = parseInput(active.kind, active.draft);
     if (!parsed.ok) {
-      setToast(active.kind === 'money' ? 'Enter an amount like 48500 or 48,500.00.' : 'Enter a date like 9/1/2026.');
-      setTimeout(() => setToast(null), 3200);
+      showToast({
+        text: active.kind === 'money' ? 'Enter an amount like 48500 or 48,500.00.' : 'Enter a date like 9/1/2026.',
+        testid: 'refusal-parse',
+      });
       return;
     }
     const before = getPath(debounced, active.path);
@@ -308,7 +414,7 @@ export function PdfDocView({
                     data-pdf-path={hit ? r.path : undefined}
                     data-pdf-locked={locked ? '1' : undefined}
                     onClick={(e) => onTextClick(e, it, p.pageNumber, r)}
-                    title={hit ? (locked ? `${labelForPath(r.path)} — locked` : `Edit ${labelForPath(r.path)}`) : undefined}
+                    title={hit ? (locked ? `${labelForPath(r.path)} — ${lockReason(r.path).headline}. Tap to unlock.` : `Edit ${labelForPath(r.path)}`) : undefined}
                     className={`absolute leading-none select-none ${
                       hit
                         ? (locked
@@ -358,8 +464,34 @@ export function PdfDocView({
       </div>
 
       {toast && (
-        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 max-w-[90%] bg-neutral-900 text-white text-xs px-3 py-2 rounded-lg shadow-xl"
-             data-testid="pdf-toast">{toast}</div>
+        <div
+          className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 w-[92%] max-w-md bg-neutral-900 text-white rounded-xl shadow-2xl px-3 py-2.5 pr-9"
+          data-testid="pdf-toast"
+          data-toast-kind={toast.testid || undefined}
+        >
+          <div className="text-xs leading-snug">{toast.text}</div>
+          {toast.sub && <div className="text-[11px] text-neutral-400 leading-snug mt-1">{toast.sub}</div>}
+          {toast.actions?.length > 0 && (
+            <div className="flex flex-wrap gap-2 mt-2">
+              {toast.actions.map((a, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  data-testid="pdf-toast-action"
+                  onClick={() => { setToast(null); a.run(); }}
+                  className="min-h-[44px] px-3 rounded-lg bg-white text-neutral-900 text-xs font-semibold active:bg-neutral-200"
+                >{a.label}</button>
+              ))}
+            </div>
+          )}
+          <button
+            type="button"
+            aria-label="Dismiss"
+            data-testid="pdf-toast-dismiss"
+            onClick={() => setToast(null)}
+            className="absolute top-1 right-1 w-8 h-8 text-neutral-400 hover:text-white text-base leading-none"
+          >×</button>
+        </div>
       )}
     </div>
   );

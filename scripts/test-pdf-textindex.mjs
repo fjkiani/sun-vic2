@@ -9,8 +9,10 @@
 
 import {
   buildLeafIndex, resolveTextToPath, isWritableLeaf, isPathLocked, getPath, labelForPath, norm,
-  formatVariants, parseInput, kindForPath,
+  formatVariants, parseInput, kindForPath, lockReason, findEmbeddedLeaf, explainComputed,
 } from '../src/lib/pdfTextIndex.js';
+import { DEFAULT_CONTRACT_LOCKS, DEFAULT_INVOICE_LOCKS } from '../packages/templates/legal.js';
+import { milestoneAmountCents } from '../packages/templates/format.js';
 
 let pass = 0, fail = 0;
 const ok = (cond, msg) => { if (cond) { pass++; } else { fail++; console.log('  FAIL:', msg); } };
@@ -250,6 +252,167 @@ console.log('8. labels are readable');
   eq(labelForPath('homeowner.name'), 'homeowner › name', 'dotted path reads as words');
   eq(labelForPath('scope_of_work.tasks.1.description'), 'scope of work › tasks › #2 › description', 'array index is 1-based for humans');
   eq(norm('  a   b \n c '), 'a b c', 'norm collapses whitespace');
+}
+
+console.log('9. a hyphen at a line break is not a different word');
+{
+  // @react-pdf hyphenates at the wrap point, so the tail run of a wrapped word arrives as
+  // "Demolition & Founda-". That is not a substring of "Demolition & Foundation" — they diverge
+  // at the hyphen — so every wrapped word on the page refused a click on a field that exists.
+  const idx = buildLeafIndex({
+    scope_of_work: { groups: [{ area: 'Basement', tasks: [
+      { description: 'Demolition & Foundation' },
+      { description: 'Framing and drywall' },
+    ] }] },
+  });
+  const wrapped = resolveTextToPath(idx, 'Demolition & Founda-');
+  ok(wrapped.ok, 'the tail run of a hyphenated wrapped word resolves');
+  eq(wrapped.path, 'scope_of_work.groups.0.tasks.0.description', 'to the task it was wrapped from');
+  eq(wrapped.confidence, 'substring', 'as a substring match');
+
+  // Negative controls — the hyphen rule must not become a wildcard.
+  const absent = resolveTextToPath(idx, 'Excavation & Founda-');
+  ok(!absent.ok, 'a hyphenated fragment of text that is NOT in the payload still refuses');
+  eq(absent.reason, 'not_in_payload', 'and says which of the four refusals it is');
+  ok(!resolveTextToPath(idx, 'Demoli-tion & Foundation').ok, 'only a trailing hyphen is dropped, never an interior one');
+  ok(!resolveTextToPath(idx, 'xy-').ok, 'a 3-character fragment is still too short to match anything');
+  const plain = resolveTextToPath(idx, 'Framing and drywall');
+  ok(plain.ok && plain.confidence === 'exact', 'text that already matched still matches exactly');
+}
+
+console.log('10. every locked path gets a reason that is true for THAT path');
+{
+  const ALL = [
+    ...Object.keys(DEFAULT_CONTRACT_LOCKS).filter((k) => DEFAULT_CONTRACT_LOCKS[k]).map((p) => ['contract', p]),
+    ...Object.keys(DEFAULT_INVOICE_LOCKS).filter((k) => DEFAULT_INVOICE_LOCKS[k]).map((p) => ['invoice', p]),
+  ];
+  ok(ALL.length >= 28, `every default lock is covered (${ALL.length} locks)`);
+
+  const KLASSES = new Set(['statutory', 'identity', 'standard_terms']);
+  let statutory = 0;
+  const statutoryPaths = new Set();
+  for (const [, p] of ALL) {
+    const r = lockReason(p);
+    ok(KLASSES.has(r.klass), `${p}: klass is one of the three we can explain — got ${r.klass}`);
+    ok(!!r.headline && !!r.detail, `${p}: has both a headline and a detail`);
+    ok(typeof r.inlineUnlock === 'boolean', `${p}: says whether it can be unlocked in place`);
+    // The single sentence this replaces claimed NJ mandates the wording of all 30.
+    ok(!/required NJ contract language/i.test(`${r.headline} ${r.detail}`),
+       `${p}: does not repeat the blanket "required NJ contract language" claim`);
+    if (r.klass === 'statutory') { statutory++; statutoryPaths.add(p); }
+    if (r.klass === 'standard_terms') {
+      ok(!/N\.J\.S\.A|N\.J\.A\.C/.test(`${r.headline} ${r.detail}`),
+         `${p}: company wording does not cite a statute it is not in`);
+    }
+    if (/^contractor\./.test(p)) {
+      eq(r.klass, 'identity', `${p}: your own company details are identity, not statute`);
+      ok(r.inlineUnlock, `${p}: can be unlocked from the document`);
+    }
+  }
+  // Contract locks 23 paths, invoice 7; the two statutory ones both live on the contract.
+  eq(statutory, 2, 'exactly two locked paths are actually fixed by New Jersey');
+  ok(statutoryPaths.has('right_to_cancel.text'), 'the cancellation notice is one of them (N.J.S.A. 56:8-151)');
+  ok(statutoryPaths.has('insurance.text'), 'the insurance statement is the other');
+  ok(!lockReason('right_to_cancel.text').inlineUnlock, 'verbatim statutory text is never offered a one-tap unlock');
+  ok(!lockReason('insurance.text').inlineUnlock, 'nor is the coverage statement');
+  eq(lockReason('warranties.text').klass, 'standard_terms', 'a warranty is company wording');
+  eq(lockReason('some.path.nobody.locked').klass, 'standard_terms', 'an unknown path fails safe, not statutory');
+  eq(lockReason('contractor').klass, 'standard_terms', 'the contractor OBJECT is not a contractor field');
+}
+
+console.log('11. a fixed sentence with your own data inside it is not "just template"');
+{
+  const idx = buildLeafIndex({
+    contractor: { legal_name: 'SUNVIC CONTRACTORS LLC', phone: '7325550142' },
+    homeowner: { name: 'Maria Delgado' },
+  });
+  const e = findEmbeddedLeaf(idx, 'SUNVIC CONTRACTORS LLC is responsible for obtaining all required permits.');
+  ok(!!e, 'the company name inside an authored sentence is found');
+  eq(e?.path, 'contractor.legal_name', 'and named as the field it is');
+
+  // Longest embedded value wins, so a short alias never beats the full name.
+  const idx2 = buildLeafIndex({ contractor: { legal_name: 'SUNVIC CONTRACTORS LLC' }, for_label: 'SUNVIC' });
+  eq(findEmbeddedLeaf(idx2, 'Prepared by SUNVIC CONTRACTORS LLC for the homeowner')?.path,
+     'contractor.legal_name', 'the longest embedded leaf wins');
+
+  // Negative controls.
+  ok(!findEmbeddedLeaf(idx, 'Section D — Permits and Approvals'),
+     'a heading containing none of your data returns null, not a guess');
+  ok(!findEmbeddedLeaf(idx, 'SUNVIC CONTRACTORS LLC'),
+     'an exact match is a hit for the resolver, not an embedding');
+  ok(!findEmbeddedLeaf(buildLeafIndex({ homeowner: { state: 'NJ' } }), 'all work performed in NJ by us'),
+     'a two-character value is too short to claim a sentence');
+  ok(!findEmbeddedLeaf(idx, 'LLC'), 'a click shorter than the minimum is not searched');
+}
+
+console.log('12. a calculated dollar figure is explained, not disowned');
+{
+  const payload = { payment: { total_cents: 6500000, schedule: [
+    { milestone: 'Deposit', percent: 15 },
+    { milestone: 'Rough-in complete', percent: 35 },
+    { milestone: 'Substantial completion', percent: 40 },
+    { milestone: 'Final payment', percent: 10 },
+  ] } };
+  const money = (c) => `$${(c / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  payload.payment.schedule.forEach((m, i) => {
+    const cents = milestoneAmountCents(payload.payment.total_cents, m.percent);
+    const r = explainComputed(payload, money(cents));
+    ok(!!r, `${money(cents)} is recognised as a computed milestone amount`);
+    eq(r?.index, i, `${m.milestone}: the right milestone`);
+    eq(r?.percent, m.percent, `${m.milestone}: with its own percentage`);
+    eq(r?.percentPath, `payment.schedule.${i}.percent`, `${m.milestone}: and the path that changes it`);
+    ok(r && !r.ambiguous, `${m.milestone}: a unique percentage needs no disambiguation`);
+  });
+
+  // The module reimplements the renderer's arithmetic on purpose (it must stay import-free for
+  // the browser bundle), so the two have to agree on the half-cent. The first version of this
+  // check used 33.33% of $10,000.01 — 333300.3333 cents, where round and floor give the same
+  // answer, so scripts/negcheck-locks.sh swapped round for floor and the test still passed.
+  // A control that cannot fail is not a control. 15% of $3,333.33 is 49999.95 cents, which is
+  // the smallest honest version of this: round says $500.00, floor says $499.99.
+  const HALF = { total: 333333, pct: 15 };
+  ok(Math.floor(HALF.total * HALF.pct / 100) !== Math.round(HALF.total * HALF.pct / 100),
+     'the rounding case chosen actually distinguishes round from floor');
+  const halfCents = milestoneAmountCents(HALF.total, HALF.pct);
+  eq(halfCents, Math.round(HALF.total * HALF.pct / 100), 'the renderer rounds rather than truncates');
+  eq(halfCents, 50000, 'and 15% of $3,333.33 prints as $500.00');
+  const halfPayload = { payment: { total_cents: HALF.total, schedule: [{ milestone: 'Deposit', percent: HALF.pct }] } };
+  const halfHit = explainComputed(halfPayload, money(halfCents));
+  ok(!!halfHit, 'the explainer recognises the amount the renderer actually printed');
+  eq(halfHit?.percent, HALF.pct, 'as that milestone percentage');
+  ok(!explainComputed(halfPayload, money(Math.floor(HALF.total * HALF.pct / 100))),
+     'and does NOT recognise the truncated amount, which nothing prints');
+  // A percentage that does not divide evenly but rounds down, for coverage of the other side.
+  const downCents = milestoneAmountCents(1000001, 33.33);
+  eq(downCents, 333300, '33.33% of $10,000.01 rounds down to $3,333.00');
+  ok(!!explainComputed({ payment: { total_cents: 1000001, schedule: [{ milestone: 'Deposit', percent: 33.33 }] } }, money(downCents)),
+     'and is still explained');
+
+  // Two milestones at the same percentage print the same figure; the line names which one.
+  const dup = { payment: { total_cents: 4000000, schedule: [
+    { milestone: 'Deposit', percent: 25 },
+    { milestone: 'Rough-in complete', percent: 25 },
+    { milestone: 'Final payment', percent: 50 },
+  ] } };
+  const dupAmt = money(milestoneAmountCents(4000000, 25));
+  const guessed = explainComputed(dup, dupAmt);
+  ok(guessed?.ambiguous, 'with no line context it admits the figure could be either milestone');
+  eq(guessed?.matches, 2, 'and says how many print it');
+  const fromLine = explainComputed(dup, dupAmt, `Rough-in complete 25% ${dupAmt} On completion of framing`);
+  eq(fromLine?.index, 1, 'the milestone name on the line settles it');
+  ok(fromLine && !fromLine.ambiguous, 'and it stops hedging once it knows');
+  const wrongLine = explainComputed(dup, dupAmt, 'Payment Schedule');
+  ok(wrongLine?.ambiguous, 'a line that names no milestone does not settle it');
+
+  // Negative controls — this must not become a story told about every number on the page.
+  ok(!explainComputed(payload, '$1,234.56'), 'an amount that is no milestone is not explained away');
+  ok(!explainComputed(payload, 'Payment Schedule'), 'text that is not money is not explained');
+  ok(!explainComputed(payload, '$0.00'), 'zero is not a milestone amount');
+  ok(!explainComputed(payload, money(6500000)), 'the contract total is a stored field, not a computed one');
+  ok(!explainComputed({ payment: { total_cents: 0, schedule: [{ milestone: 'x', percent: 15 }] } }, '$0.00'),
+     'no total means no arithmetic to explain');
+  ok(!explainComputed({ payment: { total_cents: 6500000 } }, money(975000)), 'no schedule means no milestone');
 }
 
 console.log(`\ntest-pdf-textindex: PASS ${pass} FAIL ${fail}`);

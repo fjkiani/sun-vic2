@@ -53,6 +53,7 @@ import { SegmentedTabs } from '../components/SegmentedTabs.jsx';
 import { DocAiTab } from '../components/doc/DocAiTab.jsx';
 import { DocSubTabs } from '../components/doc/DocSubTabs.jsx';
 import { formTabsFor, LEGAL_TABS, sectionForPath } from '../components/doc/docSections.js';
+import { labelForPath } from '../lib/pdfTextIndex.js';
 import { SendPanel } from '../components/document/SendPanel.jsx';
 import { preflight } from '../../packages/validation/guardrails.js';
 import { DocAskBar } from '../components/agent/DocAskBar.jsx';
@@ -190,6 +191,8 @@ export function DocumentEditorPage() {
   // rather than reaching for a setter that does not exist.
   const [restoring, setRestoring] = useState(false);
   const [restoreError, setRestoreError] = useState(null);
+  // Locked paths the server refused to write on the last save. Never surfaced before.
+  const [droppedWrites, setDroppedWrites] = useState(null);
   useEffect(() => { if (projectWanted) setProjectTouched(true); }, [projectWanted]);
 
   const projectQuery = useQuery({
@@ -216,6 +219,14 @@ export function DocumentEditorPage() {
         setDoc(result.document);
         updatedAtRef.current = result.document.updated_at;
       }
+      // The server answers 200 and reports every locked path it refused to write, in
+      // `skipped_locks`. Nothing read it. Combined with the setDoc above — which replaces local
+      // state with the server's copy — a write to a locked path meant the user typed, watched
+      // the text appear, and watched it silently revert 500ms later with no explanation. That
+      // is the "off sync" report. Measured live: PATCH contractor.address returns 200 with
+      // skipped_locks:["contractor.address"] and the value is unchanged (probe-lock-desync.mjs).
+      const dropped = Array.isArray(result?.skipped_locks) ? result.skipped_locks : [];
+      setDroppedWrites(dropped.length ? dropped : null);
       return result;
     },
     debounceMs: 500,
@@ -403,6 +414,12 @@ export function DocumentEditorPage() {
       onEdit={(path, value) => saveField({ [path]: value })}
       onFieldFocus={scrollFormToPath}
       onVisiblePath={scrollFormToPath}
+      // The two affordances the lock message used to describe in prose and not provide.
+      // jumpToField already selects tab AND sub-tab before scrolling, which is the part the old
+      // "Unlock it in the Legal tab" sentence could never do — an unselected sub-tab is not
+      // merely off-screen, it is unmounted.
+      onJumpToField={jumpToField}
+      onUnlockField={toggleLock}
     />
   );
 
@@ -606,6 +623,25 @@ export function DocumentEditorPage() {
     </div>
   );
 
+  const droppedBanner = droppedWrites?.length > 0 && (
+    <div
+      className="flex-shrink-0 bg-rose-50 border-x border-b border-rose-300 px-3 py-2 text-xs text-rose-800 flex items-center justify-between gap-2"
+      data-testid="dropped-write-banner"
+    >
+      <span className="flex-1 leading-snug">
+        Not saved: <b>{droppedWrites.map(labelForPath).join(', ')}</b> {droppedWrites.length === 1 ? 'is' : 'are'} locked.
+        {' '}Unlock {droppedWrites.length === 1 ? 'it' : 'them'} first — the padlock is on the field.
+      </span>
+      <div className="flex gap-2 flex-shrink-0">
+        <button
+          onClick={() => { droppedWrites.forEach(toggleLock); setDroppedWrites(null); }}
+          className="min-h-[36px] px-2 py-1 rounded bg-rose-600 text-white text-xs font-semibold"
+        >Unlock</button>
+        <button onClick={() => setDroppedWrites(null)} className="min-h-[36px] px-2 py-1 rounded border border-rose-400 text-rose-800 text-xs">Dismiss</button>
+      </div>
+    </div>
+  );
+
   // ─── Mobile layout (< md) ──────────────────────────────────
   if (isMobile) {
     const TABS = [
@@ -630,6 +666,7 @@ export function DocumentEditorPage() {
       <div ref={paneRef} style={paneHeight ? { height: paneHeight } : undefined} className="flex flex-col">
         {statusBar}
         {conflictBanner}
+      {droppedBanner}
 
         <div className="flex-shrink-0 px-2 pt-2 bg-white border-x border-neutral-200">
           <SegmentedTabs tabs={TABS} value={tab} onChange={setTab} />
@@ -692,6 +729,7 @@ export function DocumentEditorPage() {
     <div ref={paneRef} style={paneHeight ? { height: paneHeight } : undefined} className="flex flex-col">
       {statusBar}
       {conflictBanner}
+        {droppedBanner}
 
       <div ref={containerRef} className="flex-1 flex overflow-hidden border-x border-b border-neutral-200 rounded-b-xl bg-neutral-50 min-h-0">
         <div style={leftStyle} className="flex flex-col bg-white overflow-hidden">
