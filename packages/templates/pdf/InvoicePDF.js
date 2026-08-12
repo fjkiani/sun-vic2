@@ -6,9 +6,11 @@ import { fmtUSDFromCents, fmtDate, fmtDateShort } from "../format.js";
 import { CONTRACTOR } from "../../config/business.js";
 function contractorFromPayload(payload) {
   const c = payload && payload.contractor || {};
+  const address = c.address || CONTRACTOR.address;
   return {
     legal_name: c.legal_name || CONTRACTOR.legal_name,
-    address_footer: c.address_footer || CONTRACTOR.address_footer,
+    address,
+    address_footer: c.address_footer || address,
     phone: c.phone || CONTRACTOR.phone,
     email: c.email || CONTRACTOR.email,
     license_number: c.license_number || CONTRACTOR.license_number

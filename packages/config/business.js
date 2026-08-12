@@ -37,7 +37,12 @@ function envNum(name, fallback) {
 export const CONTRACTOR = Object.freeze({
   legal_name:     envStr('BUSINESS_LEGAL_NAME', 'SUNVIC CONTRACTORS LLC'),
   address:        envStr('BUSINESS_ADDRESS', '6 Stone Ridge Rd.- Old Bridge - NJ - 08857'),
-  address_footer: envStr('BUSINESS_ADDRESS_FOOTER', '6 Stone Ridge Rd ,Old Bridge, NJ, 08857'),
+  // Optional *override* for the compact one-line address in the page footer. It used to carry
+  // its own default — a second, differently-punctuated spelling of the same street address —
+  // which meant one document printed the company address two ways and only one of them was
+  // editable. Empty by default: the footer now falls back to `address`, so there is exactly one
+  // address to change. Set BUSINESS_ADDRESS_FOOTER only if the footer must genuinely differ.
+  address_footer: envStr('BUSINESS_ADDRESS_FOOTER', ''),
   phone:          envStr('BUSINESS_PHONE', '+1 (732) 824-9203'),
   email:          envStr('BUSINESS_EMAIL', 'Contact@sunvicnj.com'),
   license_number: envStr('BUSINESS_LICENSE_NUMBER', '13VH12429600'),

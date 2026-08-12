@@ -32,6 +32,12 @@ export const ScopeGroup = z.object({
 export const ContractorInfo = z.object({
   legal_name: z.string().default(CONTRACTOR.legal_name),
   address: z.string().default(CONTRACTOR.address),
+  // The PDF footer prints this on every page. It was missing here while defaults.js was
+  // spreading it in and both PDF templates were dereferencing it, so zod stripped it on
+  // create and on every save and the footer silently fell back to a frozen config constant:
+  // text printed seven times per document that no form, no click and no agent could reach.
+  // Declaring it makes the footer a real leaf — resolvable, editable, agent-writable.
+  address_footer: z.string().default(CONTRACTOR.address_footer),
   phone: z.string().default(CONTRACTOR.phone),
   email: z.string().default(CONTRACTOR.email),
   license_number: z.string().default(CONTRACTOR.license_number),

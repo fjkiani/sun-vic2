@@ -91,16 +91,23 @@ export const DISPUTE_RESOLUTION_STEPS = [
 export const DISPUTE_RESOLUTION_FOOTER =
 `⚠ This Agreement shall be governed by and construed in accordance with the laws of the State of New Jersey. Any disputes shall be resolved in accordance with the Dispute Resolution Process described in this Agreement.`;
 
-// Section I — verbatim from page 10
+// Section I — verbatim from page 10.
+//
+// The delivery block below is the statutory address a homeowner must physically deliver a
+// cancellation notice to. It used to be typed here as a literal, in a THIRD spelling
+// ("6 Stone Ridge Rd. ,Old Bridge,08857,NJ" — zip before state) that matched neither the
+// address printed in Section A nor the one in the page footer. Same company, same document,
+// three different addresses. Unlike the prose above, this is contact data, not boilerplate,
+// so it is sourced from the single business config. Byte-identical apart from the spelling.
 export const RIGHT_TO_CANCEL_TEXT =
 `YOU MAY CANCEL THIS CONTRACT AT ANY TIME BEFORE MIDNIGHT OF THE THIRD BUSINESS DAY AFTER RECEIVING A COPY OF THIS CONTRACT. IF YOU WISH TO CANCEL THIS CONTRACT, YOU MUST EITHER:
 
 SEND A SIGNED AND DATED WRITTEN NOTICE OF CANCELLATION BY REGISTERED OR CERTIFIED MAIL, RETURN RECEIPT REQUESTED; OR
 
 PERSONALLY DELIVER A SIGNED AND DATED WRITTEN NOTICE OF CANCELLATION TO:
-SUNVIC CONTRACTORS LLC
-6 Stone Ridge Rd. ,Old Bridge,08857,NJ
-+1 (732) 824-9203
+${CONTRACTOR.legal_name}
+${CONTRACTOR.address}
+${CONTRACTOR.phone}
 
 If you cancel this contract within the three-day period, you are entitled to a full refund of your money.
 Refunds must be made within 30 days of the contractor's receipt of the cancellation notice.`;

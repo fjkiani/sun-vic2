@@ -14,9 +14,14 @@ import { CONTRACTOR } from '../../config/business.js';
 // back to the config CONTRACTOR constant. Single source of truth, no hardcoding.
 function contractorFromPayload(payload) {
   const c = (payload && payload.contractor) || {};
+  // The invoice never printed `contractor.address` at all — the only company address it showed
+  // was `address_footer`, a key the schema stripped on every save. So on an invoice the address
+  // in the header and the footer came from a frozen constant and was unreachable by any edit.
+  const address = c.address || CONTRACTOR.address;
   return {
     legal_name: c.legal_name || CONTRACTOR.legal_name,
-    address_footer: c.address_footer || CONTRACTOR.address_footer,
+    address,
+    address_footer: c.address_footer || address,
     phone: c.phone || CONTRACTOR.phone,
     email: c.email || CONTRACTOR.email,
     license_number: c.license_number || CONTRACTOR.license_number,

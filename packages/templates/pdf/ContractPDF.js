@@ -7,10 +7,14 @@ import { CONTRACTOR } from "../../config/business.js";
 import { DEFAULT_SCOPE_QTY } from "../defaults.js";
 function contractorFromPayload(payload) {
   const c = payload && payload.contractor || {};
+  const address = c.address || CONTRACTOR.address;
   return {
     legal_name: c.legal_name || CONTRACTOR.legal_name,
-    address_footer: c.address_footer || CONTRACTOR.address_footer,
-    address: c.address || CONTRACTOR.address,
+    // The footer is the same address unless the payload carries an explicit override.
+    // It must never fall back to a config constant of its own: that is what made the
+    // footer unreachable from the page and let it drift away from `address`.
+    address_footer: c.address_footer || address,
+    address,
     phone: c.phone || CONTRACTOR.phone,
     email: c.email || CONTRACTOR.email,
     license_number: c.license_number || CONTRACTOR.license_number,
