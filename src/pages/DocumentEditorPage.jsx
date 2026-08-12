@@ -52,7 +52,7 @@ import { ColumnResizer } from '../components/editor/ColumnResizer.jsx';
 import { SegmentedTabs } from '../components/SegmentedTabs.jsx';
 import { DocAiTab } from '../components/doc/DocAiTab.jsx';
 import { DocSubTabs } from '../components/doc/DocSubTabs.jsx';
-import { formTabsFor, LEGAL_TABS, sectionForPath } from '../components/doc/docSections.js';
+import { formTabsFor, LEGAL_TABS, sectionForPath, blockForPath } from '../components/doc/docSections.js';
 import { labelForPath } from '../lib/pdfTextIndex.js';
 import { SendPanel } from '../components/document/SendPanel.jsx';
 import { preflight } from '../../packages/validation/guardrails.js';
@@ -361,13 +361,31 @@ export function DocumentEditorPage() {
   const scrollFormToPath = useCallback((path) => {
     const scroller = leftScrollRef.current;
     if (!scroller || !path) return;
-    const row = scroller.querySelector(`[data-field-path="${CSS.escape(path)}"]`);
-    if (!row) return;
-    syncSuppressed.current = true;
-    row.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    row.classList.add('ring-2', 'ring-sunvic-500', 'rounded-lg');
-    setTimeout(() => row.classList.remove('ring-2', 'ring-sunvic-500', 'rounded-lg'), 1600);
-    setTimeout(() => { syncSuppressed.current = false; }, 700);
+    const reveal = (r) => {
+      syncSuppressed.current = true;
+      r.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      r.classList.add('ring-2', 'ring-sunvic-500', 'rounded-lg');
+      setTimeout(() => r.classList.remove('ring-2', 'ring-sunvic-500', 'rounded-lg'), 1600);
+      setTimeout(() => { syncSuppressed.current = false; }, 700);
+    };
+    // Selecting the tab is not enough to put a row in the DOM. Two further things hide it, and
+    // measurement said both were live: the accordion mounts only its open block, and the block
+    // may fold the row into an "Advanced" disclosure. contractor.address — the field the old
+    // toast sent people hunting for — was behind both. Open whatever is in the way, one layer
+    // per pass. Each pass removes the selector that matched it, so this cannot loop.
+    const step = (budget) => {
+      const row = scroller.querySelector(`[data-field-path="${CSS.escape(path)}"]`);
+      if (row) { reveal(row); return; }
+      if (budget <= 0) return;
+      const block = blockForPath(path);
+      const section = block && scroller.querySelector(`[data-accordion-item="${CSS.escape(block)}"][aria-expanded="false"]`);
+      const advanced = scroller.querySelector(`[data-advanced-paths~="${CSS.escape(path)}"]`);
+      const next = section || advanced;
+      if (!next) return;
+      next.click();
+      requestAnimationFrame(() => requestAnimationFrame(() => step(budget - 1)));
+    };
+    step(3);
   }, []);
 
   // "Fix →" on a blocking field. The field may be in a tab that is not selected AND a sub-tab

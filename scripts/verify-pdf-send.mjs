@@ -57,8 +57,12 @@ async function main() {
   if (!docId) throw new Error(`could not create scratch document: ${created.status} ${created.text.slice(0, 300)}`);
   console.log(`scratch document ${docId} (${created.data.document.doc_number})`);
 
-  const browser = await chromium.launch({ headless: !HEADED });
+  // The launch belongs inside the try: two runs on a freshly restored machine failed at
+  // chromium.launch and orphaned a live scratch document in production because the finally
+  // that deletes it had not been entered yet.
+  let browser = null;
   try {
+    browser = await chromium.launch({ headless: !HEADED });
     const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
     await ctx.addInitScript((t) => {
       localStorage.setItem('sunvic.token', t);
@@ -129,17 +133,181 @@ async function main() {
     ok(beforeKeys === afterKeys, `no sibling keys were destroyed (${afterKeys})`);
     ok(after.data.document.payload.payment?.total_cents === 1234567, 'the total is untouched');
 
-    console.log('\n5. a locked clause refuses the edit instead of quietly taking it');
-    const locked = page.locator('[data-pdf-locked]').first();
+    console.log('\n5. a locked clause explains itself, names where to fix it, and unlocks in place');
+    // The company address in the page footer used to belong to no field at all: the template
+    // printed a config constant because zod stripped contractor.address_footer on every save,
+    // so seven runs per contract refused every click. It now prints the payload.
+    const addrRuns = page.locator('[data-pdf-path="contractor.address"]');
+    const addrCount = await addrRuns.count();
+    ok(addrCount > 0, `the company address resolves to contractor.address (${addrCount} runs on this page)`);
+
+    const locked = addrCount ? addrRuns.first() : page.locator('[data-pdf-locked]').first();
     if (await locked.count()) {
       await locked.scrollIntoViewIfNeeded();
       await locked.click();
-      await page.waitForTimeout(400);
-      const toast = await page.locator('[data-testid="pdf-toast"]').count();
+      await page.waitForSelector('[data-testid="pdf-toast"]', { timeout: 8000 }).catch(() => {});
+      const toastEl = page.locator('[data-testid="pdf-toast"]');
       const openEditor = await page.locator('[data-testid="pdf-inline-editor"]').count();
-      ok(toast > 0 && openEditor === 0, 'clicking a locked clause explains why instead of opening an editor');
+      ok(await toastEl.count() > 0 && openEditor === 0, 'clicking a locked run explains why instead of opening an editor');
+
+      const kind = await toastEl.getAttribute('data-toast-kind');
+      ok(String(kind).startsWith('lock-'), `the message knows which kind of lock this is (${kind})`);
+      const toastText = (await toastEl.innerText()).replace(/\s+/g, ' ');
+      ok(!/required NJ contract language/i.test(toastText),
+        'it no longer claims New Jersey requires this wording');
+      ok(!/Unlock it in the Legal tab/i.test(toastText),
+        'it no longer sends the user to a tab this field is not in');
+
+      // "contains ›" is not evidence: the field breadcrumb ("contractor › address") satisfies it
+      // without naming a destination. Require the destination sentence, parse the trail out of
+      // it, and later prove the app really goes there.
+      const crumbMatch = toastText.match(/The field is in ([^.]+)\./);
+      ok(!!crumbMatch, `it names a destination, not just the field: "${toastText.slice(0, 140)}"`);
+      const crumbs = (crumbMatch?.[1] || '').split('›').map((s) => s.trim()).filter(Boolean);
+      ok(crumbs.length >= 2, `the destination is a real trail, tab and section (${JSON.stringify(crumbs)})`);
+      ok(crumbs[0] === 'Form', `contractor.address is in the Form tab, and the message says so (${crumbs[0]})`);
+
+      const actions = page.locator('[data-testid="pdf-toast-action"]');
+      const nActions = await actions.count();
+      ok(nActions >= 1, `${nActions} next step(s) offered instead of a dead end`);
+      const box = await actions.first().boundingBox();
+      ok(!!box && box.height >= 44, `the action is tappable on a phone (${Math.round(box?.height || 0)}px tall)`);
       await page.screenshot({ path: `${SHOTS}/03-locked.png` });
+
+      // The button label has to repeat the destination, so the user reads it before tapping.
+      const openBtn = actions.filter({ hasText: /^Open / }).first();
+      ok(await openBtn.count() > 0, 'a button offers to take the user there');
+      if (await openBtn.count()) {
+        const openLabel = (await openBtn.innerText()).replace(/\s+/g, ' ').trim();
+        ok(crumbs.every((c) => openLabel.includes(c)),
+          `the button repeats the same destination ("${openLabel}")`);
+        await openBtn.click();
+        await page.waitForTimeout(1500);
+        const landed = await page.evaluate((p) => {
+          const row = document.querySelector(`[data-field-path="${p}"]`);
+          const tabs = Array.from(document.querySelectorAll('[role="tab"][aria-selected="true"]'))
+            .map((e) => e.textContent.trim());
+          if (!row) return { mounted: false, visible: false, tabs };
+          const r = row.getBoundingClientRect();
+          return { mounted: true, visible: r.height > 0 && r.top < window.innerHeight && r.bottom > 0, tabs };
+        }, 'contractor.address');
+        ok(landed.mounted, 'tapping it mounts the field row, no hunting');
+        ok(landed.visible, 'and the row is on screen, not scrolled past or inside a closed sub-tab');
+        // Cross-check: the claim in the toast and the tab state after the tap come from two
+        // independent places. If the message named a tab it does not open, this fails.
+        ok(landed.tabs.includes(crumbs[0]) && landed.tabs.includes(crumbs[1]),
+          `it landed on the tabs it promised (said ${crumbs.slice(0, 2).join(' › ')}, opened ${JSON.stringify(landed.tabs)})`);
+      }
+
+      // Back to the document, then prove the in-place unlock still works.
+      const pdfTab = page.locator('[role="tab"]').filter({ hasText: /^PDF$/ }).first();
+      if (await pdfTab.count()) await pdfTab.click().catch(() => {});
+      await page.waitForTimeout(600);
+      const relocked = page.locator('[data-pdf-path="contractor.address"]').first();
+      if (await relocked.count()) { await relocked.scrollIntoViewIfNeeded().catch(() => {}); await relocked.click({ force: true }); }
+      await page.waitForSelector('[data-testid="pdf-toast"]', { timeout: 8000 }).catch(() => {});
+      const unlockBtn = page.locator('[data-testid="pdf-toast-action"]').filter({ hasText: /Unlock and edit here/i }).first();
+      if (await unlockBtn.count()) {
+        await unlockBtn.click();
+        const opened = await page.waitForSelector('[data-testid="pdf-inline-editor"]', { timeout: 8000 })
+          .then(() => true).catch(() => false);
+        ok(opened, '"Unlock and edit here" unlocks and opens the editor without leaving the document');
+        await page.keyboard.press('Escape');
+      } else {
+        ok(false, 'an identity field offered no way to unlock it from the document');
+      }
     } else { ok(false, 'no locked run to click'); }
+
+    console.log('\n5d. the one clause NJ really does fix word-for-word behaves differently');
+    // right_to_cancel.text is verbatim statute (N.J.S.A. 56:8-151). It is the ONLY clause where
+    // "you cannot edit this" is true, so it must not offer an inline unlock, and it is the case
+    // the old toast described for all 30 locks. It genuinely lives in the Legal tab: prove the
+    // app opens it rather than telling the user to go find it.
+    const rtcTab = page.locator('[role="tab"]').filter({ hasText: /^PDF$/ }).first();
+    if (await rtcTab.count()) await rtcTab.click().catch(() => {});
+    await page.waitForTimeout(600);
+    const rtc = page.locator('[data-pdf-path="right_to_cancel.text"]').first();
+    if (await rtc.count()) {
+      await rtc.scrollIntoViewIfNeeded().catch(() => {});
+      await rtc.click({ force: true });
+      await page.waitForSelector('[data-testid="pdf-toast"]', { timeout: 8000 }).catch(() => {});
+      const t = page.locator('[data-testid="pdf-toast"]');
+      const kind = await t.getAttribute('data-toast-kind');
+      const text = (await t.innerText()).replace(/\s+/g, ' ');
+      ok(kind === 'lock-statutory', `the statutory clause is labelled as statutory (${kind})`);
+      ok(/56:8-151/.test(text), 'and cites the statute instead of asserting it');
+      const acts = page.locator('[data-testid="pdf-toast-action"]');
+      const labels = [];
+      for (let i = 0; i < await acts.count(); i++) labels.push((await acts.nth(i).innerText()).replace(/\s+/g, ' ').trim());
+      ok(!labels.some((l) => /Unlock and edit here/i.test(l)),
+        `no inline unlock is offered for verbatim statute (${JSON.stringify(labels)})`);
+      const crumb = (text.match(/The field is in ([^.]+)\./)?.[1] || '').split('›').map((s) => s.trim()).filter(Boolean);
+      ok(crumb[0] === 'Legal', `this one really is in Legal, and it says which part (${crumb.join(' › ')})`);
+      const goBtn = acts.filter({ hasText: /^Open / }).first();
+      if (await goBtn.count()) {
+        await goBtn.click();
+        await page.waitForTimeout(1500);
+        const landed = await page.evaluate(() => {
+          const row = document.querySelector('[data-field-path="right_to_cancel.text"]');
+          const tabs = Array.from(document.querySelectorAll('[role="tab"][aria-selected="true"]')).map((e) => e.textContent.trim());
+          if (!row) return { mounted: false, visible: false, tabs };
+          const r = row.getBoundingClientRect();
+          return { mounted: true, visible: r.height > 0 && r.top < window.innerHeight && r.bottom > 0, tabs };
+        });
+        ok(landed.mounted && landed.visible, 'the Legal clause is opened for the user, not described to them');
+        ok(crumb.slice(0, 2).every((c) => landed.tabs.includes(c)),
+          `and the Legal sub-tab it named is the one that opened (${JSON.stringify(landed.tabs)})`);
+        await page.screenshot({ path: `${SHOTS}/03d-statutory.png` });
+      } else { ok(false, 'the statutory clause offered no way to reach its field'); }
+      const back = page.locator('[role="tab"]').filter({ hasText: /^PDF$/ }).first();
+      if (await back.count()) await back.click().catch(() => {});
+      await page.waitForTimeout(600);
+    } else { ok(false, 'the right-to-cancel notice did not resolve to a payload path'); }
+
+    console.log('\n5b. a calculated figure is explained, not called template chrome');
+    // 50% of $12,345.67 is 617283.5 cents. The renderer rounds to $6,172.84 and stores only the
+    // percentage, so this string is in no payload leaf — the old message called it "part of the
+    // template, not a field you can change", which is both false and a dead end.
+    const computedText = '6,172.84';
+    const moneyRun = page.locator('[data-testid^="pdf-textlayer-"] span').filter({ hasText: computedText }).first();
+    if (await moneyRun.count()) {
+      ok(await moneyRun.getAttribute('data-pdf-path') === null, 'the computed amount is not a payload leaf');
+      await moneyRun.scrollIntoViewIfNeeded();
+      await moneyRun.click();
+      await page.waitForSelector('[data-testid="pdf-toast"]', { timeout: 8000 }).catch(() => {});
+      const kind = await page.locator('[data-testid="pdf-toast"]').getAttribute('data-toast-kind');
+      const text = (await page.locator('[data-testid="pdf-toast"]').innerText()).replace(/\s+/g, ' ');
+      ok(kind === 'refusal-computed', `it is explained as arithmetic, not chrome (kind=${kind})`);
+      ok(/50%/.test(text), `and names the percentage that produces it: "${text.slice(0, 120)}"`);
+      await page.screenshot({ path: `${SHOTS}/03b-computed.png` });
+      await page.keyboard.press('Escape');
+    } else { ok(false, `no run printing ${computedText} — the schedule should render 50% of the total`); }
+
+    console.log('\n5c. no click anywhere gets the old one-size-fits-all brush-off');
+    {
+      const unresolved = page.locator('[data-testid^="pdf-textlayer-"] span:not([data-pdf-path])');
+      const total = await unresolved.count();
+      const kinds = new Set();
+      let banned = 0, checked = 0;
+      for (let i = 0; i < total && checked < 8; i += Math.max(1, Math.floor(total / 8))) {
+        const run = unresolved.nth(i);
+        const t = (await run.innerText().catch(() => '')).trim();
+        if (t.length < 4) continue;
+        await run.scrollIntoViewIfNeeded().catch(() => {});
+        await run.click({ timeout: 2000 }).catch(() => {});
+        await page.waitForTimeout(250);
+        const el = page.locator('[data-testid="pdf-toast"]');
+        if (!(await el.count())) continue;
+        checked++;
+        kinds.add(await el.getAttribute('data-toast-kind'));
+        const txt = await el.innerText();
+        if (/part of the template, not a field you can change|required NJ contract language/i.test(txt)) banned++;
+      }
+      ok(checked > 0, `${checked} unresolved runs sampled out of ${total}`);
+      ok(banned === 0, 'none of them produced the old brush-off sentence');
+      ok([...kinds].every((k) => String(k).startsWith('refusal-') || String(k).startsWith('lock-')),
+        `every refusal declared its cause (${[...kinds].join(', ')})`);
+    }
 
     console.log('\n6. the form and the document stay on the same field');
     await page.keyboard.press('Escape');
@@ -291,7 +459,7 @@ async function main() {
     ok(merrors.length === 0, `no uncaught errors on mobile (${merrors.slice(0, 2).join(' | ') || 'none'})`);
     await mctx.close();
   } finally {
-    await browser.close().catch(() => {});
+    if (browser) await browser.close().catch(() => {});
     const del = await apiFetch(`/api/documents/${docId}?permanent=1`, { method: 'DELETE' });
     console.log(`\nscratch document permanently deleted: HTTP ${del.status}`);
     const check = await apiFetch(`/api/documents/${docId}`);

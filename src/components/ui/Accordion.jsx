@@ -46,6 +46,10 @@ export function AccordionItem({ id, title, subtitle, badge, warn = false, action
           type="button"
           onClick={() => ctx.toggle(id)}
           aria-expanded={open}
+          // Named so "take me to this field" can open the section holding it. Only the first
+          // block of a sub-tab is open by default, so every other block's rows are absent from
+          // the DOM, not merely scrolled away.
+          data-accordion-item={id}
           className="flex-1 flex items-center gap-3 px-3 py-3 min-h-[56px] text-left active:bg-neutral-50"
         >
           <svg

@@ -66,13 +66,31 @@ export function LockToggle({ locked, onToggle }) {
 }
 
 // Rarely-touched fields hide behind this so the common path stays short.
+// Every path a subtree declares, whether or not it is currently rendered. React elements carry
+// their props before they are mounted, so a collapsed <Advanced> can still say what is inside
+// it. Without this, "Open Form › Homeowner › Your company" landed the user on the right tab with
+// the address row still not in the DOM — the tab was right and the work was still theirs.
+function declaredPaths(node, out = []) {
+  React.Children.forEach(node, (child) => {
+    if (!child || typeof child !== 'object') return;
+    const p = child.props?.path;
+    if (typeof p === 'string' && p) out.push(p);
+    if (child.props?.children) declaredPaths(child.props.children, out);
+  });
+  return out;
+}
+
 export function Advanced({ children, label = 'Advanced' }) {
   const [open, setOpen] = useState(false);
+  const hidden = open ? '' : declaredPaths(children).join(' ');
   return (
     <div className="mt-1">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        data-advanced-toggle=""
+        data-advanced-paths={hidden || undefined}
         className="w-full flex items-center gap-2 px-3 py-2.5 min-h-[44px] text-left text-xs font-medium text-neutral-500"
       >
         <svg
